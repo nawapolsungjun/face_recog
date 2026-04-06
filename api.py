@@ -20,16 +20,20 @@ known_face_names = []
 
 @app.post("/api/register-face")
 async def register_face(file: UploadFile = File(...)):
-    contents = await file.read()
-    image = face_recognition.load_image_file(io.BytesIO(contents))
-    
-    # แปลงหน้าเป็นตัวเลข 128 ตัว
-    encodings = face_recognition.face_encodings(image)
-    
-    if len(encodings) > 0:
-        # ส่งชุดตัวเลขกลับไปในรูปแบบ List
-        return {"face_vector": encodings[0].tolist()}
-    return {"error": "ไม่พบใบหน้า"}
+    try:
+        contents = await file.read()
+        image = face_recognition.load_image_file(io.BytesIO(contents))
+        
+        # ค้นหาตำแหน่งใบหน้าและแปลงเป็น Vector
+        encodings = face_recognition.face_encodings(image)
+        
+        if len(encodings) > 0:
+            # แปลงเป็น list เพื่อส่งกลับไปให้ Next.js บันทึก
+            return {"success": True, "face_vector": encodings[0].tolist()}
+        else:
+            return {"success": False, "error": "ไม่พบใบหน้าในรูปภาพ"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 # 2. ฟังก์ชันนี้จะทำงานทันทีที่เปิดเซิร์ฟเวอร์ (โหลดหน้านักเรียนรอไว้เลย จะได้เร็ว)
 @app.on_event("startup")
