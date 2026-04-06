@@ -6,11 +6,9 @@ import io
 app = FastAPI(title="Student Attendance AI API")
 from fastapi.middleware.cors import CORSMiddleware
 
-# ต้องมีส่วนนี้เพื่อให้ Next.js คุยกับ Python ได้
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # หรือใส่ ["http://localhost:3000"] เพื่อความปลอดภัย
-    allow_credentials=True,
+    allow_origins=["*"], # หรือระบุเฉพาะ ["http://localhost:3000"]
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -23,15 +21,12 @@ async def register_face(file: UploadFile = File(...)):
     try:
         contents = await file.read()
         image = face_recognition.load_image_file(io.BytesIO(contents))
-        
-        # ค้นหาตำแหน่งใบหน้าและแปลงเป็น Vector
         encodings = face_recognition.face_encodings(image)
         
         if len(encodings) > 0:
-            # แปลงเป็น list เพื่อส่งกลับไปให้ Next.js บันทึก
+            # ส่ง Vector กลับไปให้ Next.js (128 ตัวเลข)
             return {"success": True, "face_vector": encodings[0].tolist()}
-        else:
-            return {"success": False, "error": "ไม่พบใบหน้าในรูปภาพ"}
+        return {"success": False, "error": "ไม่พบใบหน้า"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 

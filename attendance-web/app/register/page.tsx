@@ -107,9 +107,63 @@ export default function RegisterPage() {
     };
 
     const handleCaptureAndRegister = async () => {
-        alert(`ลงทะเบียนสำเร็จ: ${studentData.name} (ข้อมูลถูกแปลงเป็น Vector 128 มิติแล้ว)`);
-        // ตรงนี้ค่อยเพิ่มโค้ด fetch ไปหา Python ตามที่เตรียมไว้ครับ
-    };
+    if (!videoRef.current) return;
+
+    // 1. สร้างภาพนิ่งจากวิดีโอ (Canvas)
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0);
+    
+    // 2. แปลงเป็นไฟล์ภาพ (Blob) เพื่อส่งไปหา Python
+    canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const formData = new FormData();
+        formData.append('file', blob, 'face.jpg');
+
+        try {
+            setStatus('⏳ ผ่านการทดสอบ Liveness! กำลังสร้าง Face Vector...');
+            
+            // 3. ส่งไปให้ Python API ( api.py ) เพื่อเปลี่ยนรูปเป็นตัวเลข 128 มิติ
+            const resVector = await fetch('http://localhost:8000/api/register-face', {
+                method: 'POST',
+                body: formData
+            });
+            const dataVector = await resVector.json();
+
+            if (dataVector.success) {
+                setStatus('💾 กำลังบันทึกข้อมูลลงฐานข้อมูล...');
+                
+                // 4. ส่งข้อมูลทั้งหมด (รหัส, ชื่อ, Vector) ไปบันทึกลง Prisma ผ่าน Next.js API
+                const resSave = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        studentCode: studentData.code,
+                        name: studentData.name,
+                        faceVector: dataVector.face_vector // ชุดตัวเลขที่ได้จาก Python
+                    })
+                });
+                
+                if (resSave.ok) {
+                    setStatus('✅ ลงทะเบียนสำเร็จเรียบร้อย!');
+                    alert('🎉 ยินดีด้วยครับบอส! ลงทะเบียนนักศึกษาใหม่สำเร็จแล้ว');
+                    window.location.reload(); // รีเฟรชหน้าเพื่อเริ่มใหม่
+                } else {
+                    throw new Error('บันทึกลง Prisma ไม่สำเร็จ');
+                }
+            } else {
+                alert('❌ AI หาใบหน้าไม่เจอในจังหวะสุดท้าย กรุณาลองใหม่ครับ');
+                setIsComplete(false); // ให้เริ่มสแกนใหม่
+                setCurrentStep(0);
+            }
+        } catch (err) {
+            console.error(err);
+            alert('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Backend (เช็คว่ารัน Python หรือยัง)');
+            setIsComplete(false);
+        }
+    }, 'image/jpeg');
+};
 
     return (
         <div className="flex flex-col items-center p-10 font-sans">
