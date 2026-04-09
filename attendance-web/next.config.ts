@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // อนุญาตให้เข้าถึงไฟล์โมเดลขนาดใหญ่
+  serverExternalPackages: ['face-api.js'], 
 };
 
 export default nextConfig;

@@ -1,15 +1,15 @@
-from fastapi import FastAPI, File, UploadFile, Form
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import face_recognition
 import io
 import json
 import numpy as np
 import sqlite3
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps  # 🚀 ต้องลง pillow (pip install pillow)
 
 app = FastAPI()
 
-# 1. ตั้งค่า CORS
+# แก้ไขปัญหา Failed to fetch (CORS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,133 +18,82 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🚀 ฟังก์ชันประมวลผลรูปภาพให้เป็นมาตรฐานเดียวกัน (RGB + No Alpha)
+# --- ฟังก์ชันช่วยจัดการรูปภาพ (กันปัญหา 0.99 เพราะรูปเอียงหรือสีเพี้ยน) ---
 def process_image_to_np(contents):
+    # 1. เปิดรูปด้วย PIL
     img = Image.open(io.BytesIO(contents))
-    img = ImageOps.exif_transpose(img) # แก้ปัญหาภาพเอียงจาก Metadata
-    
-    # มั่นใจว่าเป็น RGB (ป้องกันปัญหาภาพโปร่งแสง หรือภาพ BGR จากบาง Browser)
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
-    
-    img_np = np.array(img)
-    print(f"DEBUG: Image processed. Shape: {img_np.shape}, Mode: {img.mode}")
-    return img_np
+    # 2. ดัดรูปให้ตรงตามแนวตั้งที่ควรจะเป็น (แก้ปัญหารูปจากมือถือเอียง)
+    img = ImageOps.exif_transpose(img)
+    # 3. บังคับเป็น RGB
+    img = img.convert('RGB')
+    # 4. แปลงเป็น Numpy Array ให้ face_recognition ใช้งานได้
+    return np.array(img)
 
-# --- Endpoint สำหรับลงทะเบียน ---
 @app.post("/api/register-face")
 async def register_face(file: UploadFile = File(...)):
     try:
         contents = await file.read()
+        # 🚀 ประกาศตัวแปร image_np ที่นี่!
         image_np = process_image_to_np(contents)
         
-        # สกัด Vector (Encoding)
+        # ค้นหา Encoding จาก image_np
         encodings = face_recognition.face_encodings(image_np)
         
         if len(encodings) > 0:
             face_vector = encodings[0].tolist()
-            print(f"DEBUG: Register Success. Vector Length: {len(face_vector)}")
             return {"success": True, "face_vector": face_vector}
         
-        return {"success": False, "error": "ไม่พบใบหน้าในขณะลงทะเบียน"}
+        return {"success": False, "error": "AI หาใบหน้าไม่เจอ กรุณาลองใหม่"}
     except Exception as e:
-        print(f"❌ Register Error: {e}")
+        print(f"Error: {e}")
         return {"success": False, "error": str(e)}
 
-# --- 🚀 Endpoint สำหรับเช็คชื่อกลุ่ม (Enhanced Version) ---
-@app.post("/api/check-attendance-group")
-async def check_attendance_group(
-    file: UploadFile = File(...),
-    boxes: str = Form(...)
-):
+@app.post("/api/check-attendance")
+async def check_attendance(file: UploadFile = File(...)):
     try:
         contents = await file.read()
+        # 🚀 ประกาศตัวแปร image_np ที่นี่ด้วย!
         image_np = process_image_to_np(contents)
-        img_h, img_w, _ = image_np.shape
-
-        face_boxes_js = json.loads(boxes)
-        face_locations = []
         
-        # ปรับจูนพิกัดให้ปลอดภัย
-        for box in face_boxes_js:
-            left = max(0, int(box['x']))
-            top = max(0, int(box['y']))
-            right = min(img_w, int(box['x'] + box['width']))
-            bottom = min(img_h, int(box['y'] + box['height']))
-            face_locations.append((top, right, bottom, left))
-
-        if not face_locations:
-            return {"success": True, "matches": []}
-
-        # สกัด Vector จากพิกัดที่ส่งมา
-        current_encodings = face_recognition.face_encodings(image_np, known_face_locations=face_locations)
+        current_encodings = face_recognition.face_encodings(image_np)
         
-        # ดึงข้อมูลจาก Database
-        conn = sqlite3.connect('./attendance-web/prisma/dev.db')
+        if len(current_encodings) == 0:
+            return {"success": False, "error": "ไม่พบใบหน้าในรูปที่ส่งมา"}
+        
+        current_vec = current_encodings[0]
+
+        # ดึงข้อมูลจาก DB
+        conn = sqlite3.connect('./attendance-web/prisma/dev.db') # บอสเช็ค Path นี้อีกรอบนะครับ
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT name, faceVectors FROM Student")
+        cursor.execute("SELECT name, faceVectors FROM Student") # เช็คชื่อคอลัมน์ให้ตรง (faceVectors)
         students = cursor.fetchall()
         conn.close()
 
-        final_matches = []
-        
-        students = cursor.fetchall()
-        print(f"DEBUG: ดึงข้อมูลนักศึกษาจาก DB ได้ทั้งหมด {len(students)} คน") # 🚀 เพิ่มบรรทัดนี้
-        conn.close()
-        # วนลูปตรวจสอบทีละใบหน้าที่ตรวจเจอ
-        for i, current_vec in enumerate(current_encodings):
-            best_match = None
-            min_distance = 0.60 # เกณฑ์มาตรฐาน
+        for student in students:
+            name = student['name']
+            vector_raw = student['faceVectors']
+            if not vector_raw: continue
+
+            # Double Decoding (แก้ปัญหา \ ใน JSON)
+            data = json.loads(vector_raw)
+            if isinstance(data, str): data = json.loads(data)
             
-            print(f"\n🔍 --- วิเคราะห์ใบหน้าที่ {i+1} ---")
-            print(f"Current Vector (First 5 values): {current_vec[:5]}")
+            if isinstance(data, dict):
+                saved_vec = np.array(data.get('front', []), dtype=float)
+            else:
+                saved_vec = np.array(data, dtype=float)
 
-            for student in students:
-                name = student['name']
-                vector_raw = student['faceVectors']
-                if not vector_raw: continue
+            # คำนวณความห่าง
+            distance = face_recognition.face_distance([saved_vec], current_vec)[0]
+            print(f"DEBUG: {name} | Distance: {distance:.4f}")
 
-                try:
-                    # 🚀 ระบบแกะ JSON แบบทนทาน (Safe JSON Parsing)
-                    data = json.loads(vector_raw)
-                    while isinstance(data, str):
-                        data = json.loads(data)
-                    
-                    if isinstance(data, dict):
-                        saved_vec_list = data.get('front', data.get('vector', []))
-                    else:
-                        saved_vec_list = data
-                    
-                    saved_vec = np.array(saved_vec_list, dtype=float)
+            if distance < 0.55: # ปรับเกณฑ์ความเข้มงวด
+                return {"success": True, "match": True, "studentName": name}
 
-                    # ตรวจสอบขนาดของ Vector (ต้องเป็น 128 มิติ)
-                    if len(saved_vec) != len(current_vec):
-                        print(f"⚠️ ขนาด Vector ไม่ตรงกัน: DB({len(saved_vec)}) vs Current({len(current_vec)})")
-                        continue
-
-                    # 🚀 คำนวณค่าความต่าง (Distance)
-                    distance = face_recognition.face_distance([saved_vec], current_vec)[0]
-                    
-                    # Print ข้อมูลเปรียบเทียบ
-                    print(f"👤 เทียบกับ: {name}")
-                    print(f"   DB Vector (First 5): {saved_vec[:5]}")
-                    print(f"   ค่าความต่าง (Distance): {distance:.4f}")
-
-                    if distance < min_distance:
-                        min_distance = distance
-                        best_match = name
-                except Exception as parse_err:
-                    print(f"❌ Error parsing vector for {name}: {parse_err}")
-                    continue
-            
-            final_matches.append(best_match)
-            print(f"🏆 ผลสรุปใบหน้าที่ {i+1}: {best_match if best_match else 'ไม่พบรายชื่อ'}")
-
-        return {"success": True, "matches": final_matches}
-        
+        return {"success": True, "match": False}
     except Exception as e:
-        print(f"❌ Critical Error: {e}")
+        print(f"Error: {e}")
         return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
