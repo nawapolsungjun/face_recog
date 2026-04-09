@@ -1,11 +1,11 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Form  # <--- ต้องมี Form ตรงนี้
 from fastapi.middleware.cors import CORSMiddleware
 import face_recognition
 import io
 import json
 import numpy as np
 import sqlite3
-from PIL import Image, ImageOps  # 🚀 ต้องลง pillow (pip install pillow)
+from PIL import Image, ImageOps
 
 app = FastAPI()
 
@@ -48,52 +48,74 @@ async def register_face(file: UploadFile = File(...)):
         print(f"Error: {e}")
         return {"success": False, "error": str(e)}
 
-@app.post("/api/check-attendance")
-async def check_attendance(file: UploadFile = File(...)):
+@app.post("/api/check-attendance-group")
+async def check_attendance_group(
+    file: UploadFile = File(...),
+    boxes: str = Form(...)
+):
+    conn = None
     try:
         contents = await file.read()
-        # 🚀 ประกาศตัวแปร image_np ที่นี่ด้วย!
         image_np = process_image_to_np(contents)
-        
-        current_encodings = face_recognition.face_encodings(image_np)
-        
-        if len(current_encodings) == 0:
-            return {"success": False, "error": "ไม่พบใบหน้าในรูปที่ส่งมา"}
-        
-        current_vec = current_encodings[0]
+        img_h, img_w, _ = image_np.shape
 
-        # ดึงข้อมูลจาก DB
-        conn = sqlite3.connect('./attendance-web/prisma/dev.db') # บอสเช็ค Path นี้อีกรอบนะครับ
+        face_boxes_js = json.loads(boxes)
+        face_locations = []
+        for box in face_boxes_js:
+            # แปลงจาก x, y, w, h เป็น top, right, bottom, left
+            top = max(0, int(box['y']))
+            right = min(img_w, int(box['x'] + box['width']))
+            bottom = min(img_h, int(box['y'] + box['height']))
+            left = max(0, int(box['x']))
+            face_locations.append((top, right, bottom, left))
+
+        if not face_locations:
+            return {"success": True, "matches": []}
+
+        # ดึง Encoding ของทุกใบหน้าในรูปกลุ่ม
+        current_encodings = face_recognition.face_encodings(image_np, known_face_locations=face_locations)
+        
+        # 🚀 จุดสำคัญ: เปิด DB ครั้งเดียว และดึงข้อมูลมาไว้ในตัวแปร students
+        conn = sqlite3.connect('./attendance-web/prisma/dev.db')
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT name, faceVectors FROM Student") # เช็คชื่อคอลัมน์ให้ตรง (faceVectors)
+        cursor.execute("SELECT name, faceVectors FROM Student")
         students = cursor.fetchall()
-        conn.close()
+        conn.close() # ปิดได้เลยเพราะเรามีข้อมูลในตัวแปร students แล้ว
+
+        final_matches = []
+        for current_vec in current_encodings:
+            best_match = None
+            min_distance = 0.60  # เกณฑ์มาตรฐาน (ยิ่งน้อยยิ่งเข้มงวด)
 
         for student in students:
             name = student['name']
             vector_raw = student['faceVectors']
             if not vector_raw: continue
 
-            # Double Decoding (แก้ปัญหา \ ใน JSON)
-            data = json.loads(vector_raw)
-            if isinstance(data, str): data = json.loads(data)
+            try:
+                # แปลงข้อมูล Vector จาก Database
+                data = json.loads(vector_raw)
+                while isinstance(data, str): data = json.loads(data)
+                saved_vec = np.array(data.get('front', data) if isinstance(data, dict) else data, dtype=float)
             
-            if isinstance(data, dict):
-                saved_vec = np.array(data.get('front', []), dtype=float)
-            else:
-                saved_vec = np.array(data, dtype=float)
+                # คำนวณค่าความต่าง (Distance)
+                distance = face_recognition.face_distance([saved_vec], current_vec)[0]
 
-            # คำนวณความห่าง
-            distance = face_recognition.face_distance([saved_vec], current_vec)[0]
-            print(f"DEBUG: {name} | Distance: {distance:.4f}")
+            # ตรวจสอบว่า "Match" หรือไม่
+                if distance < min_distance:
+                    min_distance = distance
+                    best_match = name  # ถ้าค่าน้อยกว่าเกณฑ์ ให้ถือว่าเป็นคนนี้
+            except:
+                continue
+    
+    # เก็บชื่อที่ Match ได้ลงในรายการ (ถ้าไม่พบจะเป็น None)
+        final_matches.append(best_match)
 
-            if distance < 0.55: # ปรับเกณฑ์ความเข้มงวด
-                return {"success": True, "match": True, "studentName": name}
-
-        return {"success": True, "match": False}
+        return {"success": True, "matches": final_matches}
+        
     except Exception as e:
-        print(f"Error: {e}")
+        if conn: conn.close()
         return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
