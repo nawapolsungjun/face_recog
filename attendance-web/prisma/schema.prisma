@@ -4,33 +4,36 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"  // ใส่ URL ตรงๆ แบบนี้ได้เลยใน V.6
+  url      = "file:./dev.db" // ใส่ URL ตรงๆ แบบนี้ได้เลยใน V.6
 }
 
 model Course {
   id          Int          @id @default(autoincrement())
   name        String
-  students    Student[]
-  attendances Attendance[]
+  students    Student[] // ฝั่งนี้บอสมีแล้ว
+  attendances Attendance[] // ฝั่งนี้บอสก็มีแล้ว
 }
 
 model Student {
-  id          Int          @id @default(autoincrement())
-  studentCode String       @unique
+  id          Int     @id @default(autoincrement())
+  studentCode String  @unique
   name        String
-  // เก็บเป็น String ยาวๆ เพื่อบันทึก JSON ของ Array ตัวเลข 128 ตัว
-  faceVector  String?      
-  courseId    Int
-  course      Course       @relation(fields: [courseId], references: [id])
-  attendances Attendance[]
+  faceVectors String?
+
+  courseId Int
+  course   Course @relation(fields: [courseId], references: [id])
+
+  Attendance Attendance[]
 }
 
 model Attendance {
-  id        Int      @id @default(autoincrement())
-  date      DateTime @default(now())
-  status    String
+  id        Int     @id @default(autoincrement())
   studentId Int
-  student   Student  @relation(fields: [studentId], references: [id])
-  courseId  Int
-  course    Course   @relation(fields: [courseId], references: [id])
+  student   Student @relation(fields: [studentId], references: [id])
+
+  courseId Int
+  course   Course @relation(fields: [courseId], references: [id])
+
+  timestamp DateTime @default(now())
+  status    String
 }
