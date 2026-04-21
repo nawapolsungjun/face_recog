@@ -4,36 +4,108 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db" // ใส่ URL ตรงๆ แบบนี้ได้เลยใน V.6
+  url      = "file:./dev.db"
 }
 
+// -----------------------------------------
+// 1. ระบบจัดการบัญชีผู้ใช้และบทบาท (Core Auth)
+// -----------------------------------------
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT  // 🚀 เพิ่ม STUDENT เพื่อให้สอดคล้องกับการใช้งานจริง
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  username  String?  @unique // 🚀 เพิ่มสำหรับใช้ล็อกอินหรือแสดงผลแทน Email
+  password  String
+  role      Role     @default(STUDENT) // ตั้ง Default เป็น STUDENT เพื่อความปลอดภัย
+  
+  // Relations: เชื่อมไปยังข้อมูลเฉพาะส่วน
+  admin     Admin?
+  teacher   Teacher?
+  student   Student?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// -----------------------------------------
+// 2. ข้อมูลเฉพาะของผู้ดูแลระบบ (Admin)
+// -----------------------------------------
+
+model Admin {
+  id         Int      @id @default(autoincrement())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name       String   // ชื่อ Admin
+  employeeId String?  @unique // รหัสพนักงาน (ถ้ามี)
+}
+
+// -----------------------------------------
+// 3. ข้อมูลเฉพาะของอาจารย์ (Teacher)
+// -----------------------------------------
+
+model Teacher {
+  id         Int      @id @default(autoincrement())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name       String   // ชื่ออาจารย์
+  department String?  // ภาควิชา/สาขาวิชา
+  
+  courses    Course[]
+}
+
+// -----------------------------------------
+// 4. ระบบจัดการชั้นเรียนและนักศึกษา
+// -----------------------------------------
+
 model Course {
-  id          Int          @id @default(autoincrement())
-  name        String
-  students    Student[] // ฝั่งนี้บอสมีแล้ว
-  attendances Attendance[] // ฝั่งนี้บอสก็มีแล้ว
+  id          String   @id @default(cuid())
+  courseCode  String   @unique
+  courseName  String
+  status      String   @default("ACTIVE")
+  
+  teacherId   Int
+  teacher     Teacher  @relation(fields: [teacherId], references: [id])
+  
+  students    Student[]
+  attendances Attendance[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt // ใช้ @updatedAt ตัวเดียวเพื่อความมาตรฐาน
 }
 
 model Student {
-  id          Int     @id @default(autoincrement())
-  studentCode String  @unique
+  id          Int      @id @default(autoincrement())
+  studentCode String   @unique
   name        String
-  faceVectors String?
+  password    String   // สำหรับใช้ล็อกอินฝั่งนักศึกษา
+  faceVectors String?  // เก็บ String JSON (Array 128 มิติ)
+  
+  userId      String?  @unique 
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  courseId Int
-  course   Course @relation(fields: [courseId], references: [id])
-
-  Attendance Attendance[]
+  courses     Course[]
+  attendances Attendance[]
 }
 
 model Attendance {
-  id        Int     @id @default(autoincrement())
-  studentId Int
-  student   Student @relation(fields: [studentId], references: [id])
+  id          Int      @id @default(autoincrement())
+  date        DateTime @default(now()) 
+  status      String   // "มาเรียน", "มาสาย", "ลา", "ขาดเรียน"
+  imagePath   String?  // เก็บ Path รูปถ่ายยืนยันตอนแสกน
+  
+  studentId   Int
+  student     Student  @relation(fields: [studentId], references: [id])
+  
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id])
 
-  courseId Int
-  course   Course @relation(fields: [courseId], references: [id])
-
-  timestamp DateTime @default(now())
-  status    String
+  createdAt   DateTime @default(now())
 }

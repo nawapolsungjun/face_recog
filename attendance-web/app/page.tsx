@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import * as faceapi from 'face-api.js';
+import { useParams } from 'next/navigation'; // 🚀 ใช้ดึง ID วิชาจาก URL
 
 interface ScanResult {
   url: string;
@@ -9,16 +10,21 @@ interface ScanResult {
 }
 
 export default function AttendancePage() {
+  const params = useParams();
+  const courseId = params.id as string; // 🚀 ดึง ID วิชามาเก็บไว้
+
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [scanResults, setScanResults] = useState<ScanResult[]>([]); 
   const [attendanceList, setAttendanceList] = useState<string[]>([]);
   const [status, setStatus] = useState('กำลังเตรียมความพร้อม...');
   const [isLoading, setIsLoading] = useState(true);
+  const [isMounted, setIsMounted] = useState(false); // 🚀 ป้องกัน Hydration Mismatch
 
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const imageRefs = useRef<(HTMLImageElement | null)[]>([]);
 
   useEffect(() => {
+    setIsMounted(true); // ยืนยันว่าโหลดที่ Client แล้ว
     const loadModels = async () => {
       try {
         const MODEL_URL = '/models';
@@ -27,9 +33,9 @@ export default function AttendancePage() {
           faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
         ]);
         setIsLoading(false);
-        setStatus(' ระบบพร้อมใช้งาน');
+        setStatus('✅ ระบบพร้อมใช้งานสำหรับวิชานี้');
       } catch (err) {
-        setStatus(' โหลดโมเดลไม่สำเร็จ');
+        setStatus('❌ โหลดโมเดลไม่สำเร็จ');
       }
     };
     loadModels();
@@ -46,12 +52,12 @@ export default function AttendancePage() {
       }));
       setScanResults(results);
       setAttendanceList([]);
-      setStatus(` เลือกรูปภาพ ${files.length} รูป พร้อมเช็คชื่อ`);
+      setStatus(`📸 เลือกรูปภาพ ${files.length} รูป พร้อมเช็คชื่อ`);
     }
   };
 
   const handleAttendance = async () => {
-    if (!selectedFiles) return;
+    if (!selectedFiles || !courseId) return;
     setIsLoading(true);
     const uniquePresentStudents = new Set<string>();
     const updatedResults: ScanResult[] = [];
@@ -59,7 +65,7 @@ export default function AttendancePage() {
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
-        setStatus(` กำลังสแกนรูปที่ ${i + 1}/${selectedFiles.length}...`);
+        setStatus(`⏳ กำลังสแกนรูปที่ ${i + 1}/${selectedFiles.length}...`);
 
         const img = new Image();
         img.src = URL.createObjectURL(file);
@@ -81,6 +87,7 @@ export default function AttendancePage() {
           const formData = new FormData();
           formData.append('file', file);
           formData.append('boxes', JSON.stringify(currentBoxes));
+          formData.append('course_id', courseId); // 🚀 ส่ง ID วิชาไปที่ Python เพื่อแยกบันทึก
 
           const response = await fetch('http://localhost:8000/api/check-attendance-group', {
             method: 'POST',
@@ -90,7 +97,7 @@ export default function AttendancePage() {
           currentMatches = apiResult.matches;
 
           currentMatches.forEach(name => {
-            if (name && name !== "Unknown") uniquePresentStudents.add(name);
+            if (name) uniquePresentStudents.add(name);
           });
         }
 
@@ -103,7 +110,7 @@ export default function AttendancePage() {
 
       setScanResults(updatedResults);
       setAttendanceList(Array.from(uniquePresentStudents));
-      setStatus(` เช็คชื่อเสร็จสิ้น! พบนักศึกษา ${uniquePresentStudents.size} คน`);
+      setStatus(`✅ เช็คชื่อวิชา ${courseId} เสร็จสิ้น! พบ ${uniquePresentStudents.size} คน`);
 
       setTimeout(() => {
         updatedResults.forEach((res, idx) => {
@@ -114,7 +121,7 @@ export default function AttendancePage() {
       }, 100);
 
     } catch (err: any) {
-      setStatus(` Error: ${err.message}`);
+      setStatus(`❌ Error: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -148,14 +155,19 @@ export default function AttendancePage() {
     });
   };
 
+  // 🚀 ถ้ายังไม่โหลดที่ Client ให้ return null หรือ Loading เปล่าๆ ป้องกัน Error
+  if (!isMounted) return null;
+
   return (
     <div className="flex flex-col items-center min-h-screen bg-slate-50 p-6 md:p-10 font-sans">
-      <h1 className="text-3xl font-bold mb-8 text-slate-800 tracking-tight">ระบบเช็คชื่อสแกนใบหน้ากลุ่ม</h1>
+      <div className="mb-8 text-center">
+        <h1 className="text-3xl font-bold text-slate-800 tracking-tight">📸 สแกนเช็คชื่อ</h1>
+        <p className="text-slate-500 mt-2 font-medium">รหัสวิชา: {courseId}</p>
+      </div>
 
-      {/* Control Panel */}
       <div className="flex flex-col gap-5 bg-white p-8 rounded-2xl shadow-xl border border-slate-200 w-full max-w-2xl mb-8">
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-semibold text-slate-600">อัปโหลดรูปภาพนักศึกษา (เลือกได้หลายรูป):</label>
+          <label className="text-sm font-semibold text-slate-600">อัปโหลดรูปภาพกลุ่มเพื่อเช็คชื่อ:</label>
           <input 
             type="file" 
             multiple 
@@ -170,44 +182,32 @@ export default function AttendancePage() {
           disabled={isLoading || !selectedFiles} 
           className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-xl font-bold text-lg shadow-lg shadow-blue-200 disabled:bg-slate-300 disabled:shadow-none transition-all active:scale-[0.98]"
         >
-          {isLoading ? ' กำลังประมวลผล...' : ' เริ่มเช็คชื่อนักศึกษา'}
+          {isLoading ? '⏳ กำลังสแกน...' : '🚀 เริ่มเช็คชื่อนักศึกษา'}
         </button>
         
-        <div className={`text-center py-2 px-4 rounded-lg font-medium ${status.includes('') ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
+        <div className={`text-center py-2 px-4 rounded-lg font-medium ${status.includes('❌') ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
           {status}
         </div>
       </div>
 
-      {/* Summary List */}
       {attendanceList.length > 0 && (
-        <div className="w-full max-w-2xl bg-white p-8 rounded-2xl shadow-xl border-t-8 border-green-500 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-slate-800">รายชื่อนักศึกษาที่มาเรียน</h2>
-            <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-bold">
-              {attendanceList.length} คน
-            </span>
-          </div>
+        <div className="w-full max-w-2xl bg-white p-8 rounded-2xl shadow-xl border-t-8 border-green-500 mb-8">
+          <h2 className="text-xl font-bold text-slate-800 mb-4">มาเรียนวันนี้ ({attendanceList.length} คน)</h2>
           <div className="flex flex-wrap gap-2">
             {attendanceList.map((name, i) => (
-              <span key={i} className="bg-green-50 text-green-700 px-4 py-2 rounded-xl text-sm font-semibold border border-green-100 flex items-center gap-1">
-                 {name}
+              <span key={i} className="bg-green-50 text-green-700 px-4 py-2 rounded-xl text-sm font-semibold border border-green-100">
+                ✅ {name}
               </span>
             ))}
           </div>
         </div>
       )}
 
-      {/*  รูปภาพทั้งหมดพร้อมกรอบ */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-7xl px-4">
         {scanResults.map((res, idx) => (
-          <div key={idx} className="flex flex-col bg-white p-4 rounded-2xl shadow-lg border border-slate-100 transition-transform hover:scale-[1.01]">
+          <div key={idx} className="flex flex-col bg-white p-4 rounded-2xl shadow-lg border border-slate-100">
             <div className="flex items-center justify-between mb-3 px-1">
               <span className="text-sm font-black text-slate-400 uppercase tracking-widest">Image #{idx + 1}</span>
-              {res.matches.length > 0 && (
-                <span className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-md font-bold">
-                  พบ {res.boxes.length} ใบหน้า
-                </span>
-              )}
             </div>
             <div className="relative inline-block rounded-xl overflow-hidden bg-slate-100">
               <img
@@ -224,13 +224,6 @@ export default function AttendancePage() {
           </div>
         ))}
       </div>
-      
-      {scanResults.length === 0 && !isLoading && (
-        <div className="text-slate-400 mt-20 flex flex-col items-center gap-4">
-          <div className="text-6xl"></div>
-          <p className="font-medium text-lg">ยังไม่มีรูปภาพที่รอการสแกน</p>
-        </div>
-      )}
     </div>
   );
 }

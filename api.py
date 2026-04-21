@@ -7,6 +7,7 @@ import json
 import numpy as np
 import sqlite3
 from PIL import Image, ImageOps
+from datetime import datetime
 
 app = FastAPI()
 
@@ -24,7 +25,7 @@ def process_image_to_np(contents):
     img = img.convert('RGB')
     return np.array(img)
 
-# 1. Endpoint สำหรับลงทะเบียนหลายมุมพร้อมกัน
+# 1. ลงทะเบียนหลายมุม
 @app.post("/api/register-face-multi")
 async def register_face_multi(files: List[UploadFile] = File(...)):
     try:
@@ -33,37 +34,36 @@ async def register_face_multi(files: List[UploadFile] = File(...)):
             contents = await file.read()
             image_np = process_image_to_np(contents)
             encodings = face_recognition.face_encodings(image_np)
-            
             if len(encodings) > 0:
                 all_vectors.append(encodings[0].tolist())
         
         if len(all_vectors) > 0:
-            return {
-                "success": True, 
-                "face_vectors": all_vectors, 
-                "vector_count": len(all_vectors)
-            }
-        
-        return {"success": False, "error": "AI หาใบหน้าไม่เจอจากทุกรูปที่ส่งมา"}
+            return {"success": True, "face_vectors": all_vectors, "vector_count": len(all_vectors)}
+        return {"success": False, "error": "AI หาใบหน้าไม่เจอ"}
     except Exception as e:
-        print(f"Error in multi-register: {e}")
         return {"success": False, "error": str(e)}
 
-# 2. ระบบเช็คชื่อกลุ่ม (ป้องกันชื่อซ้ำในรูปเดียวกัน)
+# 2. เช็คชื่อกลุ่มแยกตามวิชา และป้องกันบันทึกซ้ำซ้อน
+# api.py (ปรับปรุงส่วน check_attendance)
 @app.post("/api/check-attendance-group")
-async def check_attendance_group(
-    file: UploadFile = File(...),
-    boxes: str = Form(...)
+async def check_attendance(
+    file: UploadFile = File(...), 
+    course_id: str = Form(...), 
+    boxes: str = Form(...) 
 ):
     conn = None
     try:
         contents = await file.read()
         image_np = process_image_to_np(contents)
-        img_h, img_w, _ = image_np.shape
-
         face_boxes_js = json.loads(boxes)
+        
+        img_h, img_w, _ = image_np.shape
         face_locations = []
+
+        # 🚀 จุดแก้ไขสำคัญ: ปรับพิกัดให้เข้ากับขนาดรูปจริง
+        # เราต้องมั่นใจว่าพิกัดที่ส่งมา ถูกนำมาใช้กับรูปขนาดจริงได้ถูกต้อง
         for box in face_boxes_js:
+            # face_recognition ใช้รูปแบบ (top, right, bottom, left)
             top = max(0, int(box['y']))
             right = min(img_w, int(box['x'] + box['width']))
             bottom = min(img_h, int(box['y'] + box['height']))
@@ -71,84 +71,73 @@ async def check_attendance_group(
             face_locations.append((top, right, bottom, left))
 
         if not face_locations:
+            print("🔍 DEBUG: No face locations found in request")
             return {"success": True, "matches": []}
 
+        # สกัด Encoding จากพิกัดที่ส่งมา
         current_encodings = face_recognition.face_encodings(image_np, known_face_locations=face_locations)
-        
+        print(f"🔍 DEBUG: Found {len(current_encodings)} faces in image")
+
+        # ดึงข้อมูลนักศึกษาจาก DB
         conn = sqlite3.connect('./attendance-web/prisma/dev.db')
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT name, faceVectors FROM Student")
+        
+        # 🚀 ปรับปรุง Query: ดึงเฉพาะนักเรียนที่มีใบหน้าลงทะเบียนไว้
+        query = """
+            SELECT s.id, s.name, s.faceVectors 
+            FROM Student s
+            JOIN _CourseToStudent cts ON s.id = cts.B 
+            WHERE cts.A = ? AND s.faceVectors IS NOT NULL
+        """
+        cursor.execute(query, (course_id,))
         students = cursor.fetchall()
-        conn.close()
 
-        # เตรียมตัวแปรสำหรับจัดการผลลัพธ์
+        print(f"🔍 DEBUG: ดึงข้อมูลนักเรียนมาเปรียบเทียบ {len(students)} คน สำหรับวิชา {course_id}")
+
         final_matches = [None] * len(current_encodings)
-        # claimed_faces เก็บชื่อที่ถูกจองแล้ว: { "ชื่อ": {"index": idx, "dist": distance} }
-        claimed_faces = {}
-
-        # วนลูปทีละใบหน้าที่เจอในรูป (ใช้ enumerate เพื่อเก็บตำแหน่ง index)
+        
+        # วนลูปหาใบหน้าที่ใกล้เคียงที่สุด
         for idx, current_vec in enumerate(current_encodings):
-            best_match_for_this_face = None
-            lowest_dist_for_this_face = 0.55  # เกณฑ์ความแม่นยำ
+            best_student = None
+            lowest_dist = 0.6 # 🚀 ปรับ Tolerance เป็น 0.6 (กลางๆ ไม่หลวมไม่เข้มเกินไป)
 
             for student in students:
-                name = student['name']
-                vector_raw = student['faceVectors']
-                if not vector_raw: continue
-
                 try:
+                    vector_raw = student['faceVectors']
                     data = json.loads(vector_raw)
-                    # รองรับ Multi-Vector
-                    if isinstance(data, list) and len(data) > 0 and isinstance(data[0], list):
+                    
+                    # รองรับทั้งแบบ Vector เดียว และหลายมุม
+                    if isinstance(data, list):
                         saved_vectors = [np.array(v) for v in data]
                     else:
-                        vec = data.get('front', data) if isinstance(data, dict) else data
-                        saved_vectors = [np.array(vec)]
+                        saved_vectors = [np.array(data)]
 
                     distances = face_recognition.face_distance(saved_vectors, current_vec)
                     current_min = np.min(distances)
 
-                    if current_min < lowest_dist_for_this_face:
-                        lowest_dist_for_this_face = current_min
-                        best_match_for_this_face = name
-                except:
+                    if current_min < lowest_dist:
+                        lowest_dist = current_min
+                        best_student = {"id": student['id'], "name": student['name']}
+                except Exception as e:
+                    print(f"⚠️ Error parsing vector for student {student['name']}: {e}")
                     continue
             
-            # --- 🚀 เงื่อนไขป้องกันชื่อซ้ำในรูปเดียว ---
-            if best_match_for_this_face:
-                # ถ้าชื่อนี้เคยถูกใบหน้าอื่นในรูปนี้ "จอง" ไปแล้ว
-                if best_match_for_this_face in claimed_faces:
-                    # ตรวจสอบว่าใบหน้าปัจจุบัน "ชัดเจน/แม่นยำ" กว่าใบหน้าที่จองไว้เดิมไหม
-                    if lowest_dist_for_this_face < claimed_faces[best_match_for_this_face]['dist']:
-                        # อันใหม่แม่นกว่า! ยกเลิกอันเก่าให้เป็น None
-                        old_idx = claimed_faces[best_match_for_this_face]['index']
-                        final_matches[old_idx] = None
-                        
-                        # จองตำแหน่งใหม่แทน
-                        final_matches[idx] = best_match_for_this_face
-                        claimed_faces[best_match_for_this_face] = {
-                            "index": idx,
-                            "dist": lowest_dist_for_this_face
-                        }
-                    else:
-                        # อันใหม่แม่นน้อยกว่าอันที่จองไว้แล้ว ตำแหน่งนี้จึงเป็น None
-                        final_matches[idx] = None
-                else:
-                    # ยังไม่มีใครใช้ชื่อนี้ บันทึกชื่อและจองตำแหน่งทันที
-                    final_matches[idx] = best_match_for_this_face
-                    claimed_faces[best_match_for_this_face] = {
-                        "index": idx,
-                        "dist": lowest_dist_for_this_face
-                    }
+            if best_student:
+                print(f"✅ Match Found: {best_student['name']} (Dist: {lowest_dist:.4f})")
+                final_matches[idx] = best_student
             else:
-                final_matches[idx] = None
+                print(f"❓ Unknown face at index {idx}")
 
-        return {"success": True, "matches": final_matches}
+        # ส่งชื่อกลับไปให้ Next.js วาดกรอบ
+        display_names = [m['name'] if m else "Unknown" for m in final_matches]
+        
+        conn.close()
+        return {"success": True, "matches": display_names}
         
     except Exception as e:
+        print(f"❌ Python Error: {str(e)}")
         if conn: conn.close()
-        print(f"Group check error: {e}")
         return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
