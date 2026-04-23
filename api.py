@@ -7,9 +7,7 @@ import json
 import numpy as np
 import sqlite3
 import base64
-from PIL import Image, ImageOps
 from PIL import Image, ImageOps, ImageEnhance
-from datetime import datetime
 
 app = FastAPI()
 
@@ -25,20 +23,14 @@ def process_image_to_np(contents):
     img = Image.open(io.BytesIO(contents))
     img = ImageOps.exif_transpose(img)
     img = img.convert('RGB')
-
-    enhancer = ImageEnhance.Brightness(img)
-    img = enhancer.enhance(1.2) 
     
-    # 2. ปรับความคมชัด (Contrast) - ช่วยให้ขอบใบหน้าชัดขึ้น
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(1.3)
-    
-    # 3. (ทางเลือก) ปรับความชัดของภาพ (Sharpness)
-    enhancer = ImageEnhance.Sharpness(img)
-    img = enhancer.enhance(1.5)
+    # 🚀 ปรับปรุงการ Preprocessing ให้หน้าชัดขึ้น
+    img = ImageOps.autocontrast(img, cutoff=0.5)
+    img = ImageEnhance.Brightness(img).enhance(1.1)
+    img = ImageEnhance.Contrast(img).enhance(1.2)
+    img = ImageEnhance.Sharpness(img).enhance(1.5)
     return np.array(img)
 
-# 1. ลงทะเบียนหลายมุม
 @app.post("/api/register-face-multi")
 async def register_face_multi(files: List[UploadFile] = File(...)):
     try:
@@ -55,17 +47,13 @@ async def register_face_multi(files: List[UploadFile] = File(...)):
         return {"success": False, "error": "AI หาใบหน้าไม่เจอ"}
     except Exception as e:
         return {"success": False, "error": str(e)}
-    
 
 @app.post("/api/extract-vector")
 async def extract_vector(data: dict):
     try:
-        # แปลง Base64 เป็นรูปภาพ
         header, encoded = data['image'].split(",", 1)
         image_data = base64.b64decode(encoded)
-        image_np = process_image_to_np(image_data) # ใช้ฟังก์ชันปรับแสงที่บอสมี
-
-        # สกัด Vector
+        image_np = process_image_to_np(image_data)
         encodings = face_recognition.face_encodings(image_np)
         if len(encodings) > 0:
             return {"success": True, "vector": encodings[0].tolist()}
@@ -73,8 +61,6 @@ async def extract_vector(data: dict):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-# 2. เช็คชื่อกลุ่มแยกตามวิชา และป้องกันบันทึกซ้ำซ้อน
-# api.py (ปรับปรุงส่วน check_attendance)
 @app.post("/api/check-attendance-group")
 async def check_attendance(
     file: UploadFile = File(...), 
@@ -90,10 +76,7 @@ async def check_attendance(
         img_h, img_w, _ = image_np.shape
         face_locations = []
 
-        # 🚀 จุดแก้ไขสำคัญ: ปรับพิกัดให้เข้ากับขนาดรูปจริง
-        # เราต้องมั่นใจว่าพิกัดที่ส่งมา ถูกนำมาใช้กับรูปขนาดจริงได้ถูกต้อง
         for box in face_boxes_js:
-            # face_recognition ใช้รูปแบบ (top, right, bottom, left)
             top = max(0, int(box['y']))
             right = min(img_w, int(box['x'] + box['width']))
             bottom = min(img_h, int(box['y'] + box['height']))
@@ -101,19 +84,14 @@ async def check_attendance(
             face_locations.append((top, right, bottom, left))
 
         if not face_locations:
-            print("🔍 DEBUG: No face locations found in request")
             return {"success": True, "matches": []}
 
-        # สกัด Encoding จากพิกัดที่ส่งมา
         current_encodings = face_recognition.face_encodings(image_np, known_face_locations=face_locations)
-        print(f"🔍 DEBUG: Found {len(current_encodings)} faces in image")
-
-        # ดึงข้อมูลนักศึกษาจาก DB
+        
         conn = sqlite3.connect('./attendance-web/prisma/dev.db')
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # 🚀 ปรับปรุง Query: ดึงเฉพาะนักเรียนที่มีใบหน้าลงทะเบียนไว้
         query = """
             SELECT s.id, s.name, s.faceVectors 
             FROM Student s
@@ -123,25 +101,19 @@ async def check_attendance(
         cursor.execute(query, (course_id,))
         students = cursor.fetchall()
 
-        print(f"🔍 DEBUG: ดึงข้อมูลนักเรียนมาเปรียบเทียบ {len(students)} คน สำหรับวิชา {course_id}")
-
         final_matches = [None] * len(current_encodings)
-        
-        # วนลูปหาใบหน้าที่ใกล้เคียงที่สุด
+        match_distances = [1.0] * len(current_encodings) # เก็บค่าระยะห่างเพื่อใช้เปรียบเทียบกรณีชื่อซ้ำ
+
+        # --- ขั้นตอนที่ 1: หา Match ที่ดีที่สุดของแต่ละกรอบ ---
         for idx, current_vec in enumerate(current_encodings):
             best_student = None
-            lowest_dist = 0.5 # 🚀 ปรับ Tolerance เป็น 0.6 (กลางๆ ไม่หลวมไม่เข้มเกินไป)
+            lowest_dist = 0.52 # ค่าจูนสำหรับรูปหมู่
 
             for student in students:
                 try:
                     vector_raw = student['faceVectors']
                     data = json.loads(vector_raw)
-                    
-                    # รองรับทั้งแบบ Vector เดียว และหลายมุม
-                    if isinstance(data, list):
-                        saved_vectors = [np.array(v) for v in data]
-                    else:
-                        saved_vectors = [np.array(data)]
+                    saved_vectors = [np.array(v) for v in data] if isinstance(data, list) else [np.array(data)]
 
                     distances = face_recognition.face_distance(saved_vectors, current_vec)
                     current_min = np.min(distances)
@@ -149,17 +121,38 @@ async def check_attendance(
                     if current_min < lowest_dist:
                         lowest_dist = current_min
                         best_student = {"id": student['id'], "name": student['name']}
-                except Exception as e:
-                    print(f"⚠️ Error parsing vector for student {student['name']}: {e}")
+                except:
                     continue
             
             if best_student:
-                print(f"✅ Match Found: {best_student['name']} (Dist: {lowest_dist:.4f})")
                 final_matches[idx] = best_student
-            else:
-                print(f"❓ Unknown face at index {idx}")
+                match_distances[idx] = lowest_dist
 
-        # ส่งชื่อกลับไปให้ Next.js วาดกรอบ
+        # --- ขั้นตอนที่ 2: [🚀 จุดที่ปรับปรุง] กำจัดรายชื่อซ้ำ (De-duplication) ---
+        # 1 รายชื่อ ต้องมีเพียง 1 กรอบที่ 'เหมือนที่สุด' เท่านั้น
+        used_names = {} # เก็บข้อมูล { "ชื่อ": { "index": ลำดับกรอบ, "dist": ระยะห่าง } }
+
+        for idx, student in enumerate(final_matches):
+            if student:
+                name = student['name']
+                dist = match_distances[idx]
+
+                if name in used_names:
+                    # ถ้าชื่อนี้ตรวจพบซ้ำ ให้เช็คว่ากรอบไหน 'หน้าเหมือน' กว่ากัน
+                    if dist < used_names[name]['dist']:
+                        # กรอบใหม่หน้าชัดกว่า -> สั่งให้กรอบเก่าเป็น Unknown
+                        final_matches[used_names[name]['index']] = None
+                        # อัปเดตข้อมูลเจ้าของชื่อคนปัจจุบัน
+                        used_names[name] = {"index": idx, "dist": dist}
+                        print(f"🔄 Duplicate found for {name}: Keeping index {idx} (better dist)")
+                    else:
+                        # กรอบปัจจุบันแพ้กรอบเก่า -> สั่งให้กรอบนี้เป็น Unknown
+                        final_matches[idx] = None
+                        print(f"🚫 Duplicate found for {name}: Keeping old index (better dist)")
+                else:
+                    # ชื่อยังไม่เคยถูกใช้ บันทึกไว้
+                    used_names[name] = {"index": idx, "dist": dist}
+
         display_names = [m['name'] if m else "Unknown" for m in final_matches]
         
         conn.close()
@@ -169,7 +162,6 @@ async def check_attendance(
         print(f"❌ Python Error: {str(e)}")
         if conn: conn.close()
         return {"success": False, "error": str(e)}
-
 
 if __name__ == "__main__":
     import uvicorn

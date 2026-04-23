@@ -19,34 +19,34 @@ export default function FaceEnrollmentPage() {
   const [capturedVectors, setCapturedVectors] = useState<any[]>([]);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('user');
+    const savedUser = localStorage.getItem('student_user');
     if (!savedUser) {
-      alert("❌ กรุณาเข้าสู่ระบบก่อนทำการลงทะเบียนใบหน้าครับ");
+      alert("กรุณาเข้าสู่ระบบก่อนทำการลงทะเบียนใบหน้าครับ");
       router.push('/student/login');
       return;
     }
     const userData = JSON.parse(savedUser);
     setUser(userData);
-    setStatus(`👋 สวัสดีครับคุณ ${userData.name} กรุณาเลือกวิธีลงทะเบียนใบหน้าด้านล่างครับ`);
+    setStatus(`สวัสดีครับคุณ ${userData.name} กรุณาเลือกวิธีลงทะเบียนใบหน้าด้านล่างครับ`);
   }, [router]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const selectedFiles = e.target.files;
       if (selectedFiles.length < 3) {
-        alert("⚠️ เพื่อความแม่นยำ แนะนำให้อัปโหลดอย่างน้อย 3 รูปครับ");
+        alert("เพื่อความแม่นยำ แนะนำให้อัปโหลดอย่างน้อย 3 รูปครับ");
       }
       setFiles(selectedFiles);
       const fileArray = Array.from(selectedFiles).map(file => URL.createObjectURL(file));
       setPreviews(fileArray);
-      setStatus(`📁 เลือกรูปภาพแล้ว ${selectedFiles.length} รูป`);
+      setStatus(` เลือกรูปภาพแล้ว ${selectedFiles.length} รูป`);
     }
   };
 
   const captureScan = async () => {
     if (!webcamRef.current) return;
     setIsLoading(true);
-    setStatus('📸 AI กำลังสกัด Vector จากกล้อง...');
+    setStatus(' AI กำลังสกัด Vector จากกล้อง...');
 
     const imageSrc = webcamRef.current.getScreenshot();
     if (imageSrc) {
@@ -64,15 +64,15 @@ export default function FaceEnrollmentPage() {
           setScanProgress(newProgress); 
 
           if (newProgress >= 100) {
-            setStatus('✅ เก็บข้อมูลจากกล้องครบถ้วนแล้ว!');
+            setStatus('เก็บข้อมูลจากกล้องครบถ้วนแล้ว!');
           } else {
-            setStatus(`📸 สแกนสำเร็จ (${newProgress}%) หันหน้ามุมอื่นแล้วสแกนต่อ...`);
+            setStatus(`สแกนสำเร็จ (${newProgress}%) หันหน้ามุมอื่นแล้วสแกนต่อ...`);
           }
         } else {
-          alert(`❌ AI ตรวจไม่พบใบหน้า: ${data.error}`);
+          alert(`AI ตรวจไม่พบใบหน้า: ${data.error}`);
         }
       } catch (err) {
-        alert('❌ ไม่สามารถติดต่อ Python AI ได้');
+        alert('ไม่สามารถติดต่อ Python AI ได้');
       }
     }
     setIsLoading(false);
@@ -81,14 +81,14 @@ export default function FaceEnrollmentPage() {
   const handleFinalSave = async () => {
     if (!user) return;
     setIsLoading(true);
-    setStatus('⌛ ระบบกำลังรวบรวมและประมวลผลข้อมูลใบหน้า...');
+    setStatus('ระบบกำลังรวบรวมและประมวลผลข้อมูลใบหน้า...');
 
     try {
       let allFinalVectors: any[] = [];
 
-      // 📁 1. จัดการรูปที่อัปโหลด
+      //  จัดการรูปที่อัปโหลด
       if (files && files.length > 0) {
-        setStatus('⏳ AI กำลังสกัดข้อมูลจากไฟล์รูปภาพ...');
+        setStatus('AI กำลังสกัดข้อมูลจากไฟล์รูปภาพ...');
         const faceFormData = new FormData();
         Array.from(files).forEach(file => faceFormData.append('files', file));
         
@@ -103,37 +103,37 @@ export default function FaceEnrollmentPage() {
         }
       }
 
-      // 📸 2. รวม Vector จากการสแกนกล้อง
+      // รวม Vector จากการสแกนกล้อง
       if (capturedVectors.length > 0) {
         allFinalVectors = [...allFinalVectors, ...capturedVectors];
       }
 
       if (allFinalVectors.length < 3) {
-        throw new Error('❌ กรุณาอัปโหลดรูปหรือสแกนหน้า รวมกันอย่างน้อย 3 ข้อมูลครับ');
+        throw new Error('กรุณาอัปโหลดรูปหรือสแกนหน้า รวมกันอย่างน้อย 3 ข้อมูลครับ');
       }
 
-      setStatus(`💾 กำลังบันทึกข้อมูลใบหน้าลงระบบ...`);
+      setStatus(`กำลังบันทึกข้อมูลใบหน้าลงระบบ...`);
       
-      // 🚀 ยิงไปที่ API สำหรับ Update Face (ใช้ userId เป็นหลัก)
+      // ยิงไปที่ API สำหรับ Update Face (ใช้ userId เป็นหลัก)
       const dbResponse = await fetch('/api/student/face-register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: user.id, // ส่ง UUID เพื่อใช้ค้นหาใน DB
-          faceVectors: JSON.stringify(allFinalVectors) // ✅ ชื่อฟิลด์ตรงกับ Database (มี s)
+          faceVectors: JSON.stringify(allFinalVectors) // ชื่อฟิลด์ตรงกับ Database (มี s)
         }),
       });
 
       const dbResult = await dbResponse.json();
       if (dbResult.success) {
-        setStatus('✅ ลงทะเบียนใบหน้าสำเร็จแล้ว!');
-        alert("✅ ลงทะเบียนใบหน้าสมบูรณ์! ระบบจะพาคุณไปที่ Dashboard");
+        setStatus('ลงทะเบียนใบหน้าสำเร็จแล้ว!');
+        alert("ลงทะเบียนใบหน้าสมบูรณ์! ระบบจะพาคุณไปที่ Dashboard");
         router.replace('/student/dashboard');
       } else {
         throw new Error(dbResult.error);
       }
     } catch (err: any) {
-      setStatus(`❌ ข้อผิดพลาด: ${err.message}`);
+      setStatus(`ข้อผิดพลาด: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -175,7 +175,7 @@ export default function FaceEnrollmentPage() {
               <div className="bg-blue-500 h-full transition-all duration-700" style={{ width: `${scanProgress}%` }}></div>
             </div>
             <button type="button" onClick={captureScan} disabled={isLoading || scanProgress >= 100} className="bg-white text-slate-900 px-8 py-3 rounded-xl font-black text-xs active:scale-95 disabled:opacity-30">
-              {isLoading ? '⏳ กำลังประมวลผล...' : scanProgress >= 100 ? '✅ สแกนครบแล้ว' : '📸 บันทึกมุมหน้าปัจจุบัน'}
+              {isLoading ? 'กำลังประมวลผล...' : scanProgress >= 100 ? 'สแกนครบแล้ว' : 'บันทึกมุมหน้าปัจจุบัน'}
             </button>
           </div>
         </div>
@@ -187,14 +187,14 @@ export default function FaceEnrollmentPage() {
             disabled={isLoading || (regMode === 'upload' && !files) || (regMode === 'scan' && scanProgress < 60)} 
             className="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-[1.5rem] font-black text-lg shadow-xl active:scale-95 disabled:bg-slate-600"
           >
-            {isLoading ? 'กำลังประมวลผล...' : '✅ ยืนยันการลงทะเบียนใบหน้า'}
+            {isLoading ? 'กำลังประมวลผล...' : 'ยืนยันการลงทะเบียนใบหน้า'}
           </button>
           {(previews.length > 0 || capturedVectors.length > 0) && !isLoading && (
-            <button onClick={() => { setPreviews([]); setCapturedVectors([]); setScanProgress(0); setFiles(null); setStatus('🔄 ล้างข้อมูลแล้ว เริ่มใหม่ได้ครับ'); }} className="w-full text-slate-500 text-center text-xs font-bold mt-4">🔄 ล้างข้อมูลและเริ่มใหม่</button>
+            <button onClick={() => { setPreviews([]); setCapturedVectors([]); setScanProgress(0); setFiles(null); setStatus('ล้างข้อมูลแล้ว เริ่มใหม่ได้ครับ'); }} className="w-full text-slate-500 text-center text-xs font-bold mt-4">🔄 ล้างข้อมูลและเริ่มใหม่</button>
           )}
         </div>
 
-        {status && <div className={`p-5 rounded-2xl text-center text-[11px] font-black mt-8 border ${status.includes('❌') ? 'bg-red-950 text-red-300 border-red-900' : 'bg-slate-900 text-blue-300 border-slate-700 animate-pulse'}`}>{status}</div>}
+        {status && <div className={`p-5 rounded-2xl text-center text-[11px] font-black mt-8 border ${status.includes('') ? 'bg-red-950 text-red-300 border-red-900' : 'bg-slate-900 text-blue-300 border-slate-700 animate-pulse'}`}>{status}</div>}
       </div>
     </div>
   );

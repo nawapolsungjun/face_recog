@@ -21,7 +21,7 @@ export default function AttendancePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-
+  
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const imageRefs = useRef<(HTMLImageElement | null)[]>([]);
 
@@ -76,8 +76,9 @@ export default function AttendancePage() {
         img.src = objectUrl;
         await img.decode();
 
-        const detections = await faceapi.detectAllFaces(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.2 })).withFaceLandmarks();
+        const detections = await faceapi.detectAllFaces(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.6, maxResults: 20})).withFaceLandmarks();
 
+        const filteredDetections = detections.filter(d => d.detection.box.width > 50);
         let currentBoxes: any[] = [];
         let currentMatches: string[] = [];
 
@@ -228,7 +229,7 @@ export default function AttendancePage() {
             <h2 className="text-xl font-black text-slate-800">✅ ตรวจพบนักศึกษา ({detectedStudents.length} คน)</h2>
             <button onClick={() => setDetectedStudents([])} className="text-xs font-bold text-red-400 hover:text-red-600">ยกเลิกทั้งหมด</button>
           </div>
-          
+
           <div className="flex flex-wrap gap-2 mb-8">
             {detectedStudents.map((name, i) => (
               <span key={i} className="bg-slate-50 text-slate-700 px-4 py-2 rounded-xl text-sm font-bold border border-slate-100 flex items-center gap-3">

@@ -11,7 +11,6 @@ export default function StudentDashboard() {
   const [status, setStatus] = useState('');
   const [isPageLoading, setIsPageLoading] = useState(true);
 
-  // --- 🚀 State สำหรับ Modal และการค้นหา ---
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedCourseData, setSelectedCourseData] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -20,10 +19,11 @@ export default function StudentDashboard() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editData, setEditData] = useState({ name: '', password: '' });
   const [isUpdating, setIsUpdating] = useState(false);
+  const [showFaceWarning, setShowFaceWarning] = useState(false);
 
   useEffect(() => {
     const checkUserAndFace = async () => {
-      // 🚀 1. ดึงจาก student_user เพื่อแยกโซนกับอาจารย์
+      //  ดึงจาก student_user เพื่อแยกโซนกับอาจารย์
       const savedUser = localStorage.getItem('student_user');
       const token = localStorage.getItem('student_token');
 
@@ -31,7 +31,7 @@ export default function StudentDashboard() {
         router.push('/student/login');
         return;
       }
-      
+
       const userData = JSON.parse(savedUser);
 
       // 🚩 ตรวจสอบ Role ป้องกันการล็อกอินข้ามสาย
@@ -51,9 +51,8 @@ export default function StudentDashboard() {
 
         if (profileData.success) {
           if (!profileData.data.faceVectors) {
-            alert("👋 ยินดีต้อนรับครับ! กรุณาลงทะเบียนใบหน้าก่อนเริ่มต้นใช้งานนะครับ");
-            router.replace('/student/face-enrollment');
-            return;
+
+            setShowFaceWarning(true);
           }
         }
 
@@ -106,22 +105,22 @@ export default function StudentDashboard() {
       const token = localStorage.getItem('student_token');
       const res = await fetch('/api/student/join', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` 
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ studentId: user.id, courseCode }),
       });
       const data = await res.json();
       if (data.success) {
-        setStatus('✅ เข้าร่วมสำเร็จ!');
+        setStatus(' เข้าร่วมสำเร็จ!');
         setCourseCode('');
         fetchMyCourses(user.id);
       } else {
-        setStatus(`❌ ${data.error}`);
+        setStatus(` ${data.error}`);
       }
     } catch (err) {
-      setStatus('❌ เกิดข้อผิดพลาด');
+      setStatus(' เกิดข้อผิดพลาด');
     }
   };
 
@@ -132,7 +131,7 @@ export default function StudentDashboard() {
       const token = localStorage.getItem('student_token');
       const res = await fetch('/api/student/profile', {
         method: 'PUT',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
@@ -161,7 +160,7 @@ export default function StudentDashboard() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('student_user'); 
+    localStorage.removeItem('student_user');
     localStorage.removeItem('student_token');
     router.push('/student/login');
   };
@@ -181,9 +180,9 @@ export default function StudentDashboard() {
     <div className="min-h-screen bg-slate-50 p-6 md:p-10 font-sans text-slate-900 print:bg-white print:p-0">
       <div className="max-w-4xl mx-auto print:hidden">
         {/* Header */}
-        <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100 mb-8 flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden">
+        <div className="bg-white rounded-3xl p-8 shadow-xs shadow-black-200 flex justify-between items-centerborder border-slate-50 mb-8 flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden">
           <div className="z-10 text-center md:text-left">
-            <h1 className="text-2xl font-black text-slate-800 tracking-tight">สวัสดีครับ, {user?.name} 👋</h1>
+            <h1 className="text-2xl font-black text-slate-800 tracking-tight">สวัสดีครับ, {user?.name}</h1>
             <p className="text-slate-500 font-medium text-sm">รหัส: {user?.studentCode}</p>
           </div>
           <div className="flex items-center gap-3 z-10">
@@ -192,11 +191,37 @@ export default function StudentDashboard() {
           </div>
         </div>
 
+        {/* 3. แถบแจ้งเตือนสแกนหน้า (แสดงผลเมื่อไม่มี Face Vectors) */}
+        {showFaceWarning && !user?.faceVectors && (
+          <div className="mb-8 animate-in slide-in-from-top duration-500">
+            <div className="bg-amber-50 border-2 border-dashed border-amber-200 rounded-[2rem] p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-4 text-center md:text-left">
+                <div className="bg-amber-100 w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shadow-sm">
+
+                </div>
+                <div>
+                  <h3 className="font-black text-amber-800 tracking-tight">ยังไม่ได้ลงทะเบียนใบหน้า</h3>
+                  <p className="text-amber-600/80 text-xs font-bold uppercase tracking-widest mt-0.5">
+                    กรุณาลงทะเบียนเพื่อใช้งานระบบเช็คชื่ออัตโนมัติ
+                  </p>
+                </div>
+              </div>
+
+              <Link
+                href="/student/face-enrollment"
+                className="bg-amber-500 hover:bg-amber-600 text-white px-8 py-3 rounded-2xl font-black text-sm shadow-lg shadow-amber-200 transition-all active:scale-95 whitespace-nowrap"
+              >
+                ลงทะเบียนเดี๋ยวนี้
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* Join Class */}
-        <div className="bg-blue-600 rounded-3xl p-8 shadow-2xl shadow-blue-200 mb-10 text-white relative">
-          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">🏫 เข้าร่วมชั้นเรียน</h2>
+        <div className="bg-white-500 rounded-3xl p-8 shadow-xl shadow-black-100 mb-10 text-white relative">
+          <h2 className="text-xl text-black font-bold mb-4 flex items-center gap-2">เข้าร่วมชั้นเรียน</h2>
           <form onSubmit={handleJoinClass} className="flex flex-col md:flex-row gap-4">
-            <input type="text" placeholder="กรอกรหัส Classroom" required className="flex-1 p-4 rounded-2xl text-slate-800 outline-none font-bold" value={courseCode} onChange={(e) => setCourseCode(e.target.value)} />
+            <input type="text" placeholder="กรอกรหัส Classroom" required className="flex-1 p-4 bg-slate-200 rounded-2xl text-slate-800 outline-none font-bold" value={courseCode} onChange={(e) => setCourseCode(e.target.value)} />
             <button type="submit" className="bg-slate-900 hover:bg-black text-white px-8 py-4 rounded-2xl font-bold shadow-lg transition-all active:scale-95">JOIN</button>
           </form>
           {status && <p className="mt-4 text-xs font-bold animate-pulse text-blue-100">{status}</p>}
@@ -221,7 +246,7 @@ export default function StudentDashboard() {
         </div>
       </div>
 
-      {/* 🚀 Modal รายละเอียดวิชา (รองรับ Print) */}
+      {/* Modal รายละเอียดวิชา (รองรับ Print) */}
       {isDetailModalOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4 print:static print:bg-white print:p-0">
           <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl print:shadow-none print:rounded-none print:max-h-none">
@@ -279,7 +304,7 @@ export default function StudentDashboard() {
 
                   {/* Attendance History */}
                   <div className="print:col-span-2">
-                    <h3 className="font-black text-slate-800 text-sm uppercase mb-4">📅 ประวัติการเข้าเรียน</h3>
+                    <h3 className="font-black text-slate-800 text-sm uppercase mb-4">ประวัติการเข้าเรียน</h3>
                     <div className="border rounded-2xl overflow-hidden shadow-sm">
                       <table className="w-full text-sm text-left">
                         <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase">
@@ -311,23 +336,30 @@ export default function StudentDashboard() {
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 print:hidden">
           <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-md shadow-2xl">
-              <h2 className="text-xl font-black mb-6 text-slate-800">จัดการข้อมูลส่วนตัว</h2>
-              <form onSubmit={handleUpdateProfile} className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">ชื่อ-นามสกุล</label>
-                  <input type="text" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold" value={editData.name} onChange={(e) => setEditData({...editData, name: e.target.value})} />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">รหัสผ่านใหม่</label>
-                  <input type="password" placeholder="••••••••" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold" value={editData.password} onChange={(e) => setEditData({...editData, password: e.target.value})} />
-                </div>
-                <div className="flex gap-3 pt-4">
-                  <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 py-4 font-bold text-slate-400 bg-slate-50 rounded-2xl transition-all">ยกเลิก</button>
-                  <button type="submit" disabled={isUpdating} className="flex-1 py-4 font-bold text-white bg-blue-600 rounded-2xl shadow-lg transition-all active:scale-95">
-                    {isUpdating ? 'Saving...' : 'บันทึก'}
-                  </button>
-                </div>
-              </form>
+            <h2 className="text-xl font-black mb-6 text-slate-800">จัดการข้อมูลส่วนตัว</h2>
+            <form onSubmit={handleUpdateProfile} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">ชื่อ-นามสกุล</label>
+                <input type="text" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold" value={editData.name} onChange={(e) => setEditData({ ...editData, name: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">รหัสผ่านใหม่</label>
+                <input type="password" placeholder="••••••••" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold" value={editData.password} onChange={(e) => setEditData({ ...editData, password: e.target.value })} />
+              </div>
+              <div className="pt-6 border-t border-slate-100">
+                <label className="text-[10px] font-black text-slate-400 ml-1 uppercase tracking-widest block mb-2">โมเดลใบหน้า (Face Scan)</label>
+                <p className="text-xs text-slate-500 mb-4 font-medium italic">บอสสามารถอัปเดตใบหน้าใหม่ได้ หากระบบสแกนเดิมมีปัญหา</p>
+                <Link href="/student/re-enroll" className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-slate-100 text-blue-600 font-bold hover:bg-blue-100 transition-all">
+                  อัปเดตใบหน้าใหม่
+                </Link>
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 py-4 font-bold text-slate-400 bg-slate-50 rounded-2xl transition-all">ยกเลิก</button>
+                <button type="submit" disabled={isUpdating} className="flex-1 py-4 font-bold text-white bg-blue-600 rounded-2xl shadow-lg transition-all active:scale-95">
+                  {isUpdating ? 'Saving...' : 'บันทึก'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
