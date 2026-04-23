@@ -40,7 +40,7 @@ export default function UserManagementPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(' อัปเดตข้อมูลสำเร็จแล้วครับ!');
+        alert(data.message || '💾 อัปเดตข้อมูลสำเร็จแล้วครับบอส!');
         setEditingUser(null);
         fetchUsers();
       } else {
@@ -101,7 +101,7 @@ export default function UserManagementPage() {
               {!loading && filteredUsers.map((user) => (
                 <tr key={user.id} className="hover:bg-blue-50/30 transition-all group">
                   <td className="p-6">
-                    <div className="font-mono font-bold text-blue-600 truncate max-w-[200px]">{user.username || user.email}</div>
+                    <div className="font-mono font-bold text-blue-600 truncate max-w-[200px]">{user.studentCode || user.email}</div>
                     {user.studentCode && <div className="text-[10px] text-slate-400 font-bold mt-1 uppercase">CODE: {user.studentCode}</div>}
                   </td>
                   <td className="p-6">
@@ -114,7 +114,7 @@ export default function UserManagementPage() {
                   </td>
                   <td className="p-6 text-center flex justify-center gap-2">
                     <button 
-                      onClick={() => setEditingUser(user)}
+                      onClick={() => setEditingUser({ ...user, password: '' })} // รีเซ็ตค่า password ใน state เป็นว่างทุกครั้งที่เปิด
                       className="bg-blue-50 text-blue-600 px-4 py-2.5 rounded-xl font-black text-xs hover:bg-blue-600 hover:text-white transition-all shadow-sm"
                     >
                       แก้ไข
@@ -133,7 +133,7 @@ export default function UserManagementPage() {
         </div>
       </div>
 
-      {/* 🚀 Modal แก้ไขข้อมูล (ฉบับอัปเกรดเพื่ออาจารย์และนักศึกษา) */}
+      {/* 🚀 Modal แก้ไขข้อมูล (เพิ่มช่องรหัสผ่าน) */}
       {editingUser && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md p-8 animate-in fade-in zoom-in duration-200 border border-slate-100">
@@ -148,7 +148,6 @@ export default function UserManagementPage() {
             </div>
             
             <form onSubmit={handleUpdate} className="space-y-4">
-              {/* --- ข้อมูลชื่อ (แก้ได้ทุกคน) --- */}
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1">ชื่อ-นามสกุล</label>
                 <input 
@@ -160,7 +159,6 @@ export default function UserManagementPage() {
                 />
               </div>
 
-              {/* --- ข้อมูลอีเมล/Username (แก้ได้ทุกคน) --- */}
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1">อีเมลระบบ / Username</label>
                 <input 
@@ -172,7 +170,20 @@ export default function UserManagementPage() {
                 />
               </div>
 
-              {/* --- 🍎 ส่วนของอาจารย์โดยเฉพาะ: ภาควิชา --- */}
+              {/* 🚩 ส่วนที่เพิ่มใหม่: ช่องรีเซ็ตรหัสผ่าน */}
+              <div>
+                <label className="text-[10px] font-black text-amber-500 uppercase ml-1 tracking-widest">
+                  รหัสผ่านใหม่ (ปล่อยว่างถ้าไม่ต้องการเปลี่ยน)
+                </label>
+                <input 
+                  type="password" 
+                  placeholder="กรอกรหัสผ่านใหม่เพื่อ Reset"
+                  value={editingUser.password || ''}
+                  onChange={(e) => setEditingUser({...editingUser, password: e.target.value})}
+                  className="w-full p-4 bg-amber-50/50 rounded-2xl border-2 border-transparent focus:border-amber-200 focus:ring-2 focus:ring-amber-500 font-bold mt-1 text-slate-700 placeholder:text-slate-300 transition-all"
+                />
+              </div>
+
               {editingUser.role === 'TEACHER' && (
                 <div className="animate-in slide-in-from-top-2 duration-300">
                   <label className="text-[10px] font-black text-blue-500 uppercase ml-1 italic tracking-widest">ภาควิชา / แผนกวิชา</label>
@@ -186,7 +197,6 @@ export default function UserManagementPage() {
                 </div>
               )}
 
-              {/* --- 🎓 ส่วนของนักศึกษา: รหัสประจำตัว --- */}
               {editingUser.role === 'STUDENT' && (
                 <div className="animate-in slide-in-from-top-2 duration-300">
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">รหัสนักศึกษา</label>

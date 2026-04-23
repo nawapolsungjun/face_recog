@@ -6,7 +6,9 @@ import io
 import json
 import numpy as np
 import sqlite3
+import base64
 from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageEnhance
 from datetime import datetime
 
 app = FastAPI()
@@ -23,6 +25,17 @@ def process_image_to_np(contents):
     img = Image.open(io.BytesIO(contents))
     img = ImageOps.exif_transpose(img)
     img = img.convert('RGB')
+
+    enhancer = ImageEnhance.Brightness(img)
+    img = enhancer.enhance(1.2) 
+    
+    # 2. ปรับความคมชัด (Contrast) - ช่วยให้ขอบใบหน้าชัดขึ้น
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(1.3)
+    
+    # 3. (ทางเลือก) ปรับความชัดของภาพ (Sharpness)
+    enhancer = ImageEnhance.Sharpness(img)
+    img = enhancer.enhance(1.5)
     return np.array(img)
 
 # 1. ลงทะเบียนหลายมุม
@@ -40,6 +53,23 @@ async def register_face_multi(files: List[UploadFile] = File(...)):
         if len(all_vectors) > 0:
             return {"success": True, "face_vectors": all_vectors, "vector_count": len(all_vectors)}
         return {"success": False, "error": "AI หาใบหน้าไม่เจอ"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    
+
+@app.post("/api/extract-vector")
+async def extract_vector(data: dict):
+    try:
+        # แปลง Base64 เป็นรูปภาพ
+        header, encoded = data['image'].split(",", 1)
+        image_data = base64.b64decode(encoded)
+        image_np = process_image_to_np(image_data) # ใช้ฟังก์ชันปรับแสงที่บอสมี
+
+        # สกัด Vector
+        encodings = face_recognition.face_encodings(image_np)
+        if len(encodings) > 0:
+            return {"success": True, "vector": encodings[0].tolist()}
+        return {"success": False, "error": "ไม่พบใบหน้า"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -100,7 +130,7 @@ async def check_attendance(
         # วนลูปหาใบหน้าที่ใกล้เคียงที่สุด
         for idx, current_vec in enumerate(current_encodings):
             best_student = None
-            lowest_dist = 0.6 # 🚀 ปรับ Tolerance เป็น 0.6 (กลางๆ ไม่หลวมไม่เข้มเกินไป)
+            lowest_dist = 0.5 # 🚀 ปรับ Tolerance เป็น 0.6 (กลางๆ ไม่หลวมไม่เข้มเกินไป)
 
             for student in students:
                 try:
@@ -139,6 +169,7 @@ async def check_attendance(
         print(f"❌ Python Error: {str(e)}")
         if conn: conn.close()
         return {"success": False, "error": str(e)}
+
 
 if __name__ == "__main__":
     import uvicorn

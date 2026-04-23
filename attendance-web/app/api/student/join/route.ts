@@ -11,12 +11,28 @@ export async function POST(req: Request) {
     });
 
     if (!course) {
-      return NextResponse.json({ success: false, error: 'ไม่พบรหัสชั้นเรียนนี้' }, { status: 404 });
+      return NextResponse.json({ success: false, error: '❌ ไม่พบรหัสชั้นเรียนนี้ในระบบ' }, { status: 404 });
     }
 
-    // 2. ผูกนักเรียนเข้ากับวิชา (Many-to-Many)
+    // 2. ค้นหานักศึกษาจาก UUID (userId) หรือ ID (Int)
+    // 🚀 เพิ่มจุดนี้เพื่อให้รองรับ ID ที่ส่งมาจาก Dashboard (ซึ่งเป็น UUID)
+    const student = await prisma.student.findFirst({
+      where: {
+        OR: [
+          { userId: studentId }, // ค้นหาด้วย UUID (เช่น cmoaok...)
+          { id: isNaN(Number(studentId)) ? -1 : Number(studentId) } // ค้นหาด้วย ID ตัวเลข (ถ้ามี)
+        ]
+      }
+    });
+
+    if (!student) {
+      return NextResponse.json({ success: false, error: '❌ ไม่พบข้อมูลนักศึกษาในระบบ' }, { status: 404 });
+    }
+
+    // 3. ผูกนักเรียนเข้ากับวิชา (Many-to-Many)
+    // ✅ เปลี่ยนมาใช้ student.id ที่เราหาเจอจากขั้นตอนที่ 2
     await prisma.student.update({
-      where: { id: Number(studentId) },
+      where: { id: student.id }, 
       data: {
         courses: {
           connect: { id: course.id }
@@ -24,8 +40,17 @@ export async function POST(req: Request) {
       }
     });
 
-    return NextResponse.json({ success: true, message: 'เข้าร่วมชั้นเรียนสำเร็จ' });
+    return NextResponse.json({ 
+      success: true, 
+      message: `✅ เข้าร่วมวิชา ${course.courseName} สำเร็จแล้วครับบอส!` 
+    });
+
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: 'เกิดข้อผิดพลาดในการเข้าร่วม' }, { status: 500 });
+    console.error("❌ Join Class API Error:", error.message);
+    // 💡 ส่ง Error Message ออกไปดูเลยว่าพังเพราะอะไร (เช่น ลงทะเบียนซ้ำ)
+    return NextResponse.json({ 
+      success: false, 
+      error: 'เกิดข้อผิดพลาด: ' + error.message 
+    }, { status: 500 });
   }
 }

@@ -98,11 +98,11 @@ export default function AdminDashboard() {
           {/* ส่วนจัดการรายงานและระบบ */}
           <section className="bg-white p-8 rounded-[2rem] shadow-xl border border-slate-100">
             <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 bg-purple-100 rounded-2xl flex items-center justify-center text-2xl">📊</div>
+              <div className="w-12 h-12 bg-purple-100 rounded-2xl flex items-center justify-center text-2xl"></div>
               <h3 className="text-xl font-black text-slate-800">รายงานและภาพรวม</h3>
             </div>
             <div className="space-y-3">
-              <Link href="/admin/reports" className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl hover:bg-gray-200 hover:text-white transition-all group">
+              <Link href="/admin/reports/courses" className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl hover:bg-gray-200 hover:text-white transition-all group">
                 <span className="font-bold text-slate-700">ออกรายงานสรุปการเข้าเรียนภาพรวม</span>
                 <span className="group-hover:translate-x-1 transition-transform">→</span>
               </Link>
