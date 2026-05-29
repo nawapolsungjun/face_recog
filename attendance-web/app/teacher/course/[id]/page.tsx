@@ -17,11 +17,11 @@ export default function AttendancePage() {
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
   const [detectedStudents, setDetectedStudents] = useState<string[]>([]); // รายชื่อที่ AI ตรวจพบ (รอการยืนยัน)
-  const [status, setStatus] = useState('⌛ กำลังโหลดโมเดล AI...');
+  const [status, setStatus] = useState('กำลังโหลดโมเดล AI...');
   const [isLoading, setIsLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  
+
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const imageRefs = useRef<(HTMLImageElement | null)[]>([]);
 
@@ -35,9 +35,9 @@ export default function AttendancePage() {
           faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
         ]);
         setIsLoading(false);
-        setStatus('✅ ระบบพร้อมใช้งาน');
+        setStatus('ระบบพร้อมใช้งาน');
       } catch (err) {
-        setStatus('❌ โหลดโมเดลไม่สำเร็จ');
+        setStatus('โหลดโมเดลไม่สำเร็จ');
         setIsLoading(false);
       }
     };
@@ -55,7 +55,7 @@ export default function AttendancePage() {
       }));
       setScanResults(results);
       setDetectedStudents([]); // เคลียร์รายชื่อเก่าเมื่อเลือกรูปใหม่
-      setStatus(`📸 เลือกรูปภาพ ${files.length} รูป พร้อมเช็คชื่อ`);
+      setStatus(`เลือกรูปภาพ ${files.length} รูป พร้อมเช็คชื่อ`);
     }
   };
 
@@ -69,14 +69,14 @@ export default function AttendancePage() {
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
-        setStatus(`⏳ กำลังวิเคราะห์รูปที่ ${i + 1}/${selectedFiles.length}...`);
+        setStatus(`กำลังวิเคราะห์รูปที่ ${i + 1}/${selectedFiles.length}...`);
 
         const img = new Image();
         const objectUrl = URL.createObjectURL(file);
         img.src = objectUrl;
         await img.decode();
 
-        const detections = await faceapi.detectAllFaces(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.6, maxResults: 20})).withFaceLandmarks();
+        const detections = await faceapi.detectAllFaces(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.6, maxResults: 20 })).withFaceLandmarks();
 
         const filteredDetections = detections.filter(d => d.detection.box.width > 50);
         let currentBoxes: any[] = [];
@@ -113,7 +113,7 @@ export default function AttendancePage() {
 
       setScanResults(updatedResults);
       setDetectedStudents(Array.from(uniqueDetected));
-      setStatus(uniqueDetected.size > 0 ? `🔍 ตรวจพบนักศึกษา ${uniqueDetected.size} คน กรุณายืนยันการบันทึก` : '❌ ไม่พบรายชื่อนักศึกษา');
+      setStatus(uniqueDetected.size > 0 ? `ตรวจพบนักศึกษา ${uniqueDetected.size} คน กรุณายืนยันการบันทึก` : ' ไม่พบรายชื่อนักศึกษา');
 
       // วาดกรอบใบหน้า
       setTimeout(() => {
@@ -125,7 +125,7 @@ export default function AttendancePage() {
       }, 200);
 
     } catch (err: any) {
-      setStatus(`❌ ข้อผิดพลาด: ${err.message}`);
+      setStatus(`ข้อผิดพลาด: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -135,7 +135,7 @@ export default function AttendancePage() {
   const handleConfirmAndSave = async () => {
     if (detectedStudents.length === 0) return;
     setIsSaving(true);
-    setStatus('💾 กำลังบันทึกข้อมูลเข้าเรียน...');
+    setStatus(' กำลังบันทึกข้อมูลเข้าเรียน...');
     try {
       const res = await fetch('/api/attendance', {
         method: 'POST',
@@ -147,14 +147,14 @@ export default function AttendancePage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(`✅ บันทึกสำเร็จ ${data.count} รายการ`);
+        alert(`บันทึกสำเร็จ ${data.count} รายการ`);
         setDetectedStudents([]); // เคลียร์หลังจากบันทึกแล้ว
-        setStatus('✅ บันทึกข้อมูลเรียนร้อยแล้ว');
+        setStatus('บันทึกข้อมูลเรียนร้อยแล้ว');
       } else {
         throw new Error(data.error);
       }
     } catch (err: any) {
-      alert(`❌ บันทึกไม่สำเร็จ: ${err.message}`);
+      alert(`บันทึกไม่สำเร็จ: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -182,7 +182,7 @@ export default function AttendancePage() {
     });
   };
 
-  if (!isMounted) return <div className="p-20 text-center font-bold">🌀 กำลังเริ่มระบบ...</div>;
+  if (!isMounted) return <div className="p-20 text-center font-bold"> กำลังเริ่มระบบ...</div>;
 
   return (
     <div className="flex flex-col items-center min-h-screen bg-slate-50 p-6 md:p-10 font-sans">
@@ -192,7 +192,7 @@ export default function AttendancePage() {
             ← กลับหน้า Dashboard
           </Link>
         </div>
-        <h1 className="text-4xl font-black text-slate-800 tracking-tight">📸 ห้องเรียนอัจฉริยะ</h1>
+        <h1 className="text-4xl font-black text-slate-800 tracking-tight">ตรวจสอบรายชื่อเข้าชั้นเรียน</h1>
         <p className="text-slate-400 font-bold text-xs mt-2 uppercase tracking-widest">Course ID: {courseId}</p>
       </div>
 
@@ -213,11 +213,11 @@ export default function AttendancePage() {
             disabled={isLoading || !selectedFiles}
             className="w-full bg-slate-900 hover:bg-black text-white py-5 rounded-2xl font-black text-lg shadow-xl shadow-slate-200 disabled:bg-slate-200 transition-all active:scale-[0.98]"
           >
-            {isLoading ? '⏳ กำลังประมวลผลใบหน้า...' : '🚀 เริ่มสแกนใบหน้า'}
+            {isLoading ? ' กำลังประมวลผลใบหน้า...' : ' เริ่มสแกนใบหน้า'}
           </button>
         )}
 
-        <div className={`text-center py-3 px-4 rounded-xl font-bold text-sm ${status.includes('❌') ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
+        <div className={`text-center py-3 px-4 rounded-xl font-bold text-sm ${status.includes('') ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
           {status}
         </div>
       </div>
@@ -226,7 +226,7 @@ export default function AttendancePage() {
       {detectedStudents.length > 0 && (
         <div className="w-full max-w-2xl bg-white p-8 rounded-[2.5rem] shadow-2xl border-t-8 border-green-500 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-black text-slate-800">✅ ตรวจพบนักศึกษา ({detectedStudents.length} คน)</h2>
+            <h2 className="text-xl font-black text-slate-800"> ตรวจพบนักศึกษา ({detectedStudents.length} คน)</h2>
             <button onClick={() => setDetectedStudents([])} className="text-xs font-bold text-red-400 hover:text-red-600">ยกเลิกทั้งหมด</button>
           </div>
 
@@ -244,7 +244,7 @@ export default function AttendancePage() {
             disabled={isSaving}
             className="w-full bg-green-500 hover:bg-green-600 text-white py-5 rounded-2xl font-black text-xl shadow-xl shadow-green-100 transition-all active:scale-[0.98]"
           >
-            {isSaving ? '💾 กำลังบันทึก...' : '✔️ ยืนยันการเข้าเรียน'}
+            {isSaving ? ' กำลังบันทึก...' : '✔️ยืนยันการเข้าเรียน'}
           </button>
         </div>
       )}
