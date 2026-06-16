@@ -2,12 +2,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Webcam from 'react-webcam';
+import Link from 'next/dist/client/link';
 
 export default function FaceEnrollmentPage() {
   const router = useRouter();
   const webcamRef = useRef<Webcam>(null);
   const [user, setUser] = useState<any>(null);
-  
+
   const [status, setStatus] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [regMode, setRegMode] = useState<'upload' | 'scan'>('upload');
@@ -57,11 +58,11 @@ export default function FaceEnrollmentPage() {
           headers: { 'Content-Type': 'application/json' }
         });
         const data = await res.json();
-        
+
         if (data.success) {
           setCapturedVectors(prev => [...prev, data.vector]);
           const newProgress = Math.min(scanProgress + 20, 100);
-          setScanProgress(newProgress); 
+          setScanProgress(newProgress);
 
           if (newProgress >= 100) {
             setStatus('เก็บข้อมูลจากกล้องครบถ้วนแล้ว!');
@@ -91,12 +92,12 @@ export default function FaceEnrollmentPage() {
         setStatus('AI กำลังสกัดข้อมูลจากไฟล์รูปภาพ...');
         const faceFormData = new FormData();
         Array.from(files).forEach(file => faceFormData.append('files', file));
-        
-        const aiResponse = await fetch('http://localhost:8000/api/register-face-multi', { 
-          method: 'POST', 
-          body: faceFormData 
+
+        const aiResponse = await fetch('http://localhost:8000/api/register-face-multi', {
+          method: 'POST',
+          body: faceFormData
         });
-        
+
         const aiResult = await aiResponse.json();
         if (aiResult.success) {
           allFinalVectors = [...allFinalVectors, ...aiResult.face_vectors];
@@ -113,7 +114,7 @@ export default function FaceEnrollmentPage() {
       }
 
       setStatus(`กำลังบันทึกข้อมูลใบหน้าลงระบบ...`);
-      
+
       // ยิงไปที่ API สำหรับ Update Face (ใช้ userId เป็นหลัก)
       const dbResponse = await fetch('/api/student/face-register', {
         method: 'POST',
@@ -142,7 +143,11 @@ export default function FaceEnrollmentPage() {
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 font-sans text-white">
       <div className="max-w-xl w-full bg-slate-800 rounded-[2.5rem] shadow-2xl p-10 border border-slate-700/50">
-        
+        <div className="flex justify-between items-center mb-6">
+          <Link href="/student/dashboard" className="text-blue-600 font-bold inline-flex items-center gap-2 hover:translate-x-[-4px] transition-all text-sm">
+            ← กลับหน้า Dashboard
+          </Link>
+        </div>
         <div className="text-center mb-8 border-b border-slate-700 pb-6">
           <h1 className="text-3xl font-black text-white">สแกน <span className="text-blue-500">ใบหน้า</span></h1>
           <p className="text-slate-400 mt-1 font-medium text-sm">
@@ -181,10 +186,10 @@ export default function FaceEnrollmentPage() {
         </div>
 
         <div className="pt-8 mt-8 border-t border-slate-700">
-          <button 
-            type="button" 
-            onClick={handleFinalSave} 
-            disabled={isLoading || (regMode === 'upload' && !files) || (regMode === 'scan' && scanProgress < 60)} 
+          <button
+            type="button"
+            onClick={handleFinalSave}
+            disabled={isLoading || (regMode === 'upload' && !files) || (regMode === 'scan' && scanProgress < 60)}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-[1.5rem] font-black text-lg shadow-xl active:scale-95 disabled:bg-slate-600"
           >
             {isLoading ? 'กำลังประมวลผล...' : 'ยืนยันการลงทะเบียนใบหน้า'}

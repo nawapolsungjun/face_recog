@@ -1,13 +1,22 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 
 export default function UserManagementPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'TEACHER' | 'STUDENT'>('TEACHER');
 
-  // --- 🚀 State สำหรับการแก้ไข ---
+  // 🚀 อ่านค่า Parameter จาก URL ป้องกัน Error การจัดเรียงลำดับ
+  const searchParams = useSearchParams();
+  const urlTab = searchParams.get('tab'); 
+
+  // 🚀 กำหนดให้สลับ Tab เริ่มต้นตามที่คลิกมาจากหน้าแรก (ถ้าไม่มีค่าจะตั้งเป็น 'TEACHER' อัตโนมัติ)
+  const [tab, setTab] = useState<'TEACHER' | 'STUDENT'>(
+    urlTab === 'STUDENT' ? 'STUDENT' : 'TEACHER'
+  );
+
+  // --- State สำหรับการแก้ไข ---
   const [editingUser, setEditingUser] = useState<any>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -26,7 +35,16 @@ export default function UserManagementPage() {
     }
   };
 
-  useEffect(() => { fetchUsers(); }, []);
+  useEffect(() => { 
+    fetchUsers(); 
+  }, []);
+
+  // 🚀 เพิ่มฟังก์ชันดักจับ เผื่อผู้ใช้สลับลิงก์จากแถบนำทางหลักโดยไม่ Refresh หน้าใหม่
+  useEffect(() => {
+    if (urlTab === 'STUDENT' || urlTab === 'TEACHER') {
+      setTab(urlTab);
+    }
+  }, [urlTab]);
 
   // --- 🛠 ฟังก์ชันอัปเดตข้อมูล ---
   const handleUpdate = async (e: React.FormEvent) => {
@@ -40,7 +58,7 @@ export default function UserManagementPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(data.message || '💾 อัปเดตข้อมูลสำเร็จแล้วครับบอส!');
+        alert(data.message || 'อัปเดตข้อมูลสำเร็จแล้วครับบอส!');
         setEditingUser(null);
         fetchUsers();
       } else {
@@ -54,7 +72,7 @@ export default function UserManagementPage() {
   };
 
   const deleteUser = async (id: string, name: string) => {
-    if (!confirm(`‼️ ยืนยันการ "ยกเลิกบัญชี" ของคุณ ${name}?\nข้อมูลทั้งหมดที่เกี่ยวข้องจะถูกลบถาวร`)) return;
+    if (!confirm(`ยืนยันการ "ยกเลิกบัญชี" ของคุณ ${name}?\nข้อมูลทั้งหมดที่เกี่ยวข้องจะถูกลบถาวร`)) return;
     try {
       const res = await fetch(`/api/admin/users?id=${id}`, { method: 'DELETE' });
       const json = await res.json();
@@ -98,6 +116,11 @@ export default function UserManagementPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
+              {loading && (
+                <tr>
+                  <td colSpan={3} className="text-center p-10 text-slate-400 font-bold animate-pulse">⌛ กำลังโหลดรายชื่อ...</td>
+                </tr>
+              )}
               {!loading && filteredUsers.map((user) => (
                 <tr key={user.id} className="hover:bg-blue-50/30 transition-all group">
                   <td className="p-6">
@@ -114,7 +137,7 @@ export default function UserManagementPage() {
                   </td>
                   <td className="p-6 text-center flex justify-center gap-2">
                     <button 
-                      onClick={() => setEditingUser({ ...user, password: '' })} // รีเซ็ตค่า password ใน state เป็นว่างทุกครั้งที่เปิด
+                      onClick={() => setEditingUser({ ...user, password: '' })}
                       className="bg-blue-50 text-blue-600 px-4 py-2.5 rounded-xl font-black text-xs hover:bg-blue-600 hover:text-white transition-all shadow-sm"
                     >
                       แก้ไข
@@ -128,12 +151,17 @@ export default function UserManagementPage() {
                   </td>
                 </tr>
               ))}
+              {!loading && filteredUsers.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="text-center p-10 text-slate-400 font-bold">❌ ไม่พบข้อมูลรายชื่อในกลุ่มนี้</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* 🚀 Modal แก้ไขข้อมูล (เพิ่มช่องรหัสผ่าน) */}
+      {/* แก้ไขข้อมูล */}
       {editingUser && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md p-8 animate-in fade-in zoom-in duration-200 border border-slate-100">
@@ -170,7 +198,6 @@ export default function UserManagementPage() {
                 />
               </div>
 
-              {/* 🚩 ส่วนที่เพิ่มใหม่: ช่องรีเซ็ตรหัสผ่าน */}
               <div>
                 <label className="text-[10px] font-black text-amber-500 uppercase ml-1 tracking-widest">
                   รหัสผ่านใหม่ (ปล่อยว่างถ้าไม่ต้องการเปลี่ยน)

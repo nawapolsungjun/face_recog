@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Webcam from 'react-webcam';
+import Link from 'next/dist/client/link';
 
 export default function ReEnrollPage() {
     const router = useRouter();
@@ -122,7 +123,7 @@ export default function ReEnrollPage() {
                 },
                 body: JSON.stringify({
                     studentId: user.id,
-                    faceVectors: allFinalVectors 
+                    faceVectors: allFinalVectors
                 }),
             });
 
@@ -144,7 +145,11 @@ export default function ReEnrollPage() {
     return (
         <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 font-sans text-white">
             <div className="max-w-xl w-full bg-slate-800 rounded-[2.5rem] shadow-2xl p-10 border border-slate-700/50">
-
+                <div className="flex justify-between items-center mb-6">
+                    <Link href="/student/dashboard" className="text-blue-600 font-bold inline-flex items-center gap-2 hover:translate-x-[-4px] transition-all text-sm">
+                        ← กลับหน้า Dashboard
+                    </Link>
+                </div>
                 <div className="text-center mb-8 border-b border-slate-700 pb-6">
                     <h1 className="text-3xl font-black text-white">อัปเดต <span className="text-blue-500">ใบหน้าใหม่</span></h1>
                     <p className="text-slate-400 mt-1 font-medium text-sm">

@@ -195,7 +195,7 @@ export default function TeacherDashboard() {
                 </div>
               </div>
               <div className="p-6 space-y-3">
-                <Link href={`/course/${course.id}`} className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-slate-900 text-white font-bold hover:bg-black transition-all shadow-lg shadow-slate-200">
+                <Link href={`/teacher/course/${course.id}`} className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-slate-900 text-white font-bold hover:bg-black transition-all shadow-lg shadow-slate-200">
                   เริ่มเช็คชื่อ (Face Scan)
                 </Link>
                 <div className="grid grid-cols-2 gap-2">

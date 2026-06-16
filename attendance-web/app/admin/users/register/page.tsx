@@ -20,7 +20,7 @@ export default function RegisterUserPage() {
     setLoading(true);
 
     try {
-      // 🚀 แก้ไขจุดนี้: สร้างก้อนข้อมูลใหม่เพื่อรวม 'username' ส่งไปให้ API
+      // แก้ไขจุดนี้: สร้างก้อนข้อมูลใหม่เพื่อรวม 'username' ส่งไปให้ API
       const payload = {
         ...formData,
         // เงื่อนไข: ถ้านักศึกษา ให้ใช้ studentCode เป็น username | ถ้าคนอื่น ให้ใช้อีเมล
@@ -30,19 +30,19 @@ export default function RegisterUserPage() {
       const res = await fetch('/api/admin/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload), // ✅ ส่ง payload ที่มี username ไป
+        body: JSON.stringify(payload), 
       });
       
       const data = await res.json();
 
       if (data.success) {
-        alert('✅ ลงทะเบียนผู้ใช้ใหม่สำเร็จเรียบร้อยครับบอส!');
+        alert('ลงทะเบียนผู้ใช้ใหม่สำเร็จเรียบร้อยครับ!');
         router.push('/admin/users'); 
       } else {
-        alert("❌ " + data.error);
+        alert(" " + data.error);
       }
     } catch (err) {
-      alert('❌ เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+      alert(' เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
     } finally {
       setLoading(false);
     }
@@ -51,8 +51,8 @@ export default function RegisterUserPage() {
   return (
     <div className="min-h-screen bg-slate-50 p-6 md:p-10 font-sans text-slate-900">
       <div className="max-w-2xl mx-auto">
-        <Link href="/admin/users" className="text-blue-600 font-bold text-sm uppercase tracking-widest flex items-center gap-2 mb-6 hover:translate-x-[-4px] transition-all">
-          ← กลับไปหน้าจัดการผู้ใช้
+        <Link href="/admin/dashboard" className="text-blue-600 font-bold text-sm uppercase tracking-widest flex items-center gap-2 mb-6 hover:translate-x-[-4px] transition-all">
+          ← กลับไปหน้า Dashboard
         </Link>
         
         <div className="bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-100">

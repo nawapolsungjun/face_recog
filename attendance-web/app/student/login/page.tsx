@@ -12,7 +12,7 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setStatus('⌛ กำลังตรวจสอบข้อมูล...');
+    setStatus('กำลังตรวจสอบข้อมูล...');
 
     try {
       const res = await fetch('/api/student/login', {
@@ -24,26 +24,22 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (data.success) {
-        setStatus('✅ เข้าสู่ระบบสำเร็จ!');
-        
-        // 🚀 ปรับปรุงใหม่: ไม่ลบข้อมูล teacher_user และ teacher_token ออกแล้ว
-        // เพื่อให้บอสสามารถใช้งาน Dashboard อาจารย์ในอีกแท็บหนึ่งได้พร้อมกัน
-        
-        // 1. เก็บข้อมูลเฉพาะของนักศึกษาลงใน Key ของตัวเอง
+        setStatus('เข้าสู่ระบบสำเร็จ!');
+
         localStorage.setItem('student_user', JSON.stringify(data.user));
-        
-        // 2. เก็บกุญแจแยกเป็น student_token
+
+
         if (data.token) {
           localStorage.setItem('student_token', data.token);
         }
 
-        // 3. พาไปหน้า Dashboard นักศึกษา
+
         router.push('/student/dashboard');
       } else {
-        setStatus(`❌ ${data.error}`);
+        setStatus(` ${data.error}`);
       }
     } catch (err) {
-      setStatus('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ');
+      setStatus(' เกิดข้อผิดพลาดในการเชื่อมต่อ');
     } finally {
       setIsLoading(false);
     }
@@ -56,8 +52,7 @@ export default function LoginPage() {
           <div className="inline-block p-4 bg-blue-600 rounded-2xl mb-4 shadow-lg shadow-blue-200">
             <span className="text-3xl">👨‍🎓</span>
           </div>
-          <h1 className="text-3xl font-black text-slate-800 tracking-tight">Student Login</h1>
-          <p className="text-slate-400 mt-2 font-medium uppercase text-[10px] tracking-widest">ระบบเช็คชื่อนักศึกษา</p>
+          <h1 className="text-3xl font-black text-slate-800 tracking-tight">เข้าสู่ระบบนักศึกษา</h1>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-6">
@@ -91,19 +86,10 @@ export default function LoginPage() {
           </button>
 
           {status && (
-            <p className={`text-center text-sm font-bold ${status.includes('❌') ? 'text-red-500' : 'text-blue-600'}`}>
+            <p className={`text-center text-sm font-bold ${status.includes('') ? 'text-red-500' : 'text-blue-600'}`}>
               {status}
             </p>
           )}
-
-          <div className="pt-6 border-t border-slate-100 text-center">
-            <p className="text-slate-400 text-xs font-bold uppercase tracking-tighter">
-              ยังไม่มีบัญชี? {' '}
-              <Link href="/student/register" className="text-blue-600 hover:underline">
-                ลงทะเบียนใหม่
-              </Link>
-            </p>
-          </div>
         </form>
       </div>
     </div>
