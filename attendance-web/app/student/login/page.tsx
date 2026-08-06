@@ -53,6 +53,8 @@ export default function LoginPage() {
             <span className="text-3xl">👨‍🎓</span>
           </div>
           <h1 className="text-3xl font-black text-slate-800 tracking-tight">เข้าสู่ระบบนักศึกษา</h1>
+          <p className="text-slate-400 font-medium mt-1 uppercase text-[12px] tracking-widest">ระบบตรวจสอบรายชื่อเข้าชั้นเรียน</p>
+          <p className="text-slate-400 font-medium mt-1 uppercase text-[12px] tracking-widest">สาขาวิชานวัตกรรมระบบสารสนเทศ</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-6">

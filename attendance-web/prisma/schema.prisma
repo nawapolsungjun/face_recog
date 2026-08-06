@@ -59,6 +59,7 @@ model Course {
   
   students    Student[]
   attendances Attendance[]
+  sessions    AttendanceSession[] // เชื่อมโยงกับรอบการเช็คชื่อ
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt 
@@ -78,6 +79,22 @@ model Student {
   attendances Attendance[]
 }
 
+// ตารางใหม่: สำหรับเก็บบันทึกรอบการเช็คชื่อและรูปภาพที่อัปโหลดสแกน
+model AttendanceSession {
+  id          String       @id @default(cuid())
+  roundNumber Int          // ครั้งที่ 1, 2, 3...
+  imageUrl    String?      // Path หรือ URL รูปภาพที่ใช้อัปโหลดเช็คชื่อ
+  note        String?      // หมายเหตุเพิ่มเติมของรอบนั้นๆ
+  
+  courseId    String
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  
+  attendances Attendance[]
+
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
 model Attendance {
   id          Int      @id @default(autoincrement())
   date        DateTime @default(now()) 
@@ -89,6 +106,10 @@ model Attendance {
   
   courseId    String
   course      Course   @relation(fields: [courseId], references: [id])
+
+  // เชื่อมโยงกับรอบการเช็คชื่อแบบ Optional (รองรับข้อมูลเก่าที่ไม่เคยมี sessionId)
+  sessionId   String?
+  session     AttendanceSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
   createdAt   DateTime @default(now())
 }

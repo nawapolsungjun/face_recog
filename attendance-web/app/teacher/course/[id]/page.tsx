@@ -16,7 +16,7 @@ export default function AttendancePage() {
 
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
-  const [detectedStudents, setDetectedStudents] = useState<string[]>([]); // รายชื่อที่ AI ตรวจพบ (รอการยืนยัน)
+  const [detectedStudents, setDetectedStudents] = useState<string[]>([]);
   const [status, setStatus] = useState('กำลังโหลดโมเดล AI...');
   const [isLoading, setIsLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
@@ -54,12 +54,11 @@ export default function AttendancePage() {
         matches: []
       }));
       setScanResults(results);
-      setDetectedStudents([]); // เคลียร์รายชื่อเก่าเมื่อเลือกรูปใหม่
+      setDetectedStudents([]);
       setStatus(`เลือกรูปภาพ ${files.length} รูป พร้อมเช็คชื่อ`);
     }
   };
 
-  // 🚀 สเต็ป 1: สแกนใบหน้า (ยังไม่บันทึก DB)
   const handleScanAttendance = async () => {
     if (!selectedFiles || !courseId) return;
     setIsLoading(true);
@@ -113,9 +112,8 @@ export default function AttendancePage() {
 
       setScanResults(updatedResults);
       setDetectedStudents(Array.from(uniqueDetected));
-      setStatus(uniqueDetected.size > 0 ? `ตรวจพบนักศึกษา ${uniqueDetected.size} คน กรุณายืนยันการบันทึก` : ' ไม่พบรายชื่อนักศึกษา');
+      setStatus(uniqueDetected.size > 0 ? `ตรวจพบนักศึกษา ${uniqueDetected.size} คน กรุณายืนยันการบันทึก` : 'ไม่พบรายชื่อนักศึกษา');
 
-      // วาดกรอบใบหน้า
       setTimeout(() => {
         updatedResults.forEach((res, idx) => {
           const img = imageRefs.current[idx];
@@ -131,30 +129,65 @@ export default function AttendancePage() {
     }
   };
 
-  // 🚀 สเต็ป 2: ยืนยันและบันทึกลง Database (ฟังก์ชัน 3.3)
   const handleConfirmAndSave = async () => {
     if (detectedStudents.length === 0) return;
     setIsSaving(true);
-    setStatus(' กำลังบันทึกข้อมูลเข้าเรียน...');
+    setStatus('กำลังบันทึกข้อมูลเข้าเรียน...');
+    
     try {
-      const res = await fetch('/api/attendance', {
+      // 1. ดึงรายชื่อนักศึกษาทั้งหมดในวิชานี้เพื่อนำมาแมป studentId
+      const courseRes = await fetch(`/api/courses/${courseId}`);
+      const courseData = await courseRes.json();
+      
+      if (!courseData.success) {
+        throw new Error('ไม่สามารถดึงข้อมูลรายวิชาได้');
+      }
+
+      const allStudentsInCourse = courseData.data.students || [];
+
+      // 2. แมปรายการเช็คชื่อ: ตรวจพบ = มาเรียน, ไม่พบ = ขาดเรียน
+      const attendanceData = allStudentsInCourse.map((student: any) => {
+        const isPresent = detectedStudents.includes(student.name);
+        return {
+          studentId: student.id,
+          status: isPresent ? 'มาเรียน' : 'ขาดเรียน'
+        };
+      });
+
+      // 3. แปลงไฟล์รูปภาพที่เลือกไว้เป็น Base64
+      let imageBase64: string | null = null;
+      if (selectedFiles && selectedFiles.length > 0) {
+        const file = selectedFiles[0];
+        imageBase64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      // 4. ส่งข้อมูลไปยัง API ยืนยันเช็คชื่อประจำรอบ
+      const res = await fetch('/api/attendance/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          studentNames: detectedStudents,
-          courseId: courseId
+          courseId: courseId,
+          imageUrl: imageBase64,
+          attendanceData: attendanceData
         })
       });
+
       const data = await res.json();
+      
       if (data.success) {
-        alert(`บันทึกสำเร็จ ${data.count} รายการ`);
-        setDetectedStudents([]); // เคลียร์หลังจากบันทึกแล้ว
-        setStatus('บันทึกข้อมูลเรียนร้อยแล้ว');
+        alert(data.message);
+        setDetectedStudents([]); 
+        setStatus('บันทึกข้อมูลเรียบร้อยแล้ว');
       } else {
         throw new Error(data.error);
       }
     } catch (err: any) {
       alert(`บันทึกไม่สำเร็จ: ${err.message}`);
+      setStatus('เกิดข้อผิดพลาดในการบันทึก');
     } finally {
       setIsSaving(false);
     }
@@ -182,7 +215,7 @@ export default function AttendancePage() {
     });
   };
 
-  if (!isMounted) return <div className="p-20 text-center font-bold"> กำลังเริ่มระบบ...</div>;
+  if (!isMounted) return <div className="p-20 text-center font-bold">กำลังเริ่มระบบ...</div>;
 
   return (
     <div className="flex flex-col items-center min-h-screen bg-slate-50 p-6 md:p-10 font-sans">
@@ -206,27 +239,25 @@ export default function AttendancePage() {
           />
         </div>
 
-        {/* ปุ่มสแกน */}
         {!detectedStudents.length && (
           <button
             onClick={handleScanAttendance}
             disabled={isLoading || !selectedFiles}
             className="w-full bg-slate-900 hover:bg-black text-white py-5 rounded-2xl font-black text-lg shadow-xl shadow-slate-200 disabled:bg-slate-200 transition-all active:scale-[0.98]"
           >
-            {isLoading ? ' กำลังประมวลผลใบหน้า...' : ' เริ่มสแกนใบหน้า'}
+            {isLoading ? 'กำลังประมวลผลใบหน้า...' : 'เริ่มสแกนใบหน้า'}
           </button>
         )}
 
-        <div className={`text-center py-3 px-4 rounded-xl font-bold text-sm ${status.includes('') ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
+        <div className={`text-center py-3 px-4 rounded-xl font-bold text-sm ${status.includes('ข้อผิดพลาด') ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
           {status}
         </div>
       </div>
 
-      {/* รายชื่อที่ตรวจพบและปุ่มยืนยัน */}
       {detectedStudents.length > 0 && (
         <div className="w-full max-w-2xl bg-white p-8 rounded-[2.5rem] shadow-2xl border-t-8 border-green-500 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-black text-slate-800"> ตรวจพบนักศึกษา ({detectedStudents.length} คน)</h2>
+            <h2 className="text-xl font-black text-slate-800">ตรวจพบนักศึกษา ({detectedStudents.length} คน)</h2>
             <button onClick={() => setDetectedStudents([])} className="text-xs font-bold text-red-400 hover:text-red-600">ยกเลิกทั้งหมด</button>
           </div>
 
@@ -244,12 +275,11 @@ export default function AttendancePage() {
             disabled={isSaving}
             className="w-full bg-green-500 hover:bg-green-600 text-white py-5 rounded-2xl font-black text-xl shadow-xl shadow-green-100 transition-all active:scale-[0.98]"
           >
-            {isSaving ? ' กำลังบันทึก...' : '✔️ยืนยันการเข้าเรียน'}
+            {isSaving ? 'กำลังบันทึก...' : 'ยืนยันการเข้าเรียน'}
           </button>
         </div>
       )}
 
-      {/* ผลการวิเคราะห์รูปภาพ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full max-w-7xl">
         {scanResults.map((res, idx) => (
           <div key={idx} className="bg-white p-6 rounded-[2rem] shadow-lg border border-slate-100">
