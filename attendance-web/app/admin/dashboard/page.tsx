@@ -48,42 +48,42 @@ export default function AdminDashboard() {
         {/* ส่วนแสดงสถิติภาพรวม */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
   
-  {/* 1. กล่องอาจารย์ -> ลิงก์ไปหน้า users */}
-  <Link href="/admin/users?tab=TEACHER" className="block bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm text-left hover:shadow-xl hover:border-blue-100 hover:scale-[1.01] transition-all duration-300 group active:scale-[0.99]">
-    <p className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">อาจารย์ทั้งหมด</p>
-    <div className="flex items-baseline gap-2 mt-2">
-      <span className="text-4xl font-black text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
-        2
-      </span>
-      <span className="text-slate-400 font-bold text-sm">คน</span>
-    </div>
-  </Link>
+          {/* 1. กล่องอาจารย์ */}
+          <Link href="/admin/users?tab=TEACHER" className="block bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm text-left hover:shadow-xl hover:border-blue-100 hover:scale-[1.01] transition-all duration-300 group active:scale-[0.99]">
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">อาจารย์ทั้งหมด</p>
+            <div className="flex items-baseline gap-2 mt-2">
+              <span className="text-4xl font-black text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
+                {isLoading ? '...' : stats.teachers}
+              </span>
+              <span className="text-slate-400 font-bold text-sm">คน</span>
+            </div>
+          </Link>
 
-  {/* 2. กล่องนักศึกษา -> ลิงก์ไปหน้า users */}
-  <Link href="/admin/users?tab=STUDENT" className="block bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm text-left hover:shadow-xl hover:border-blue-100 hover:scale-[1.01] transition-all duration-300 group active:scale-[0.99]">
-    <p className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">นักศึกษาทั้งหมด</p>
-    <div className="flex items-baseline gap-2 mt-2">
-      <span className="text-4xl font-black text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
-        3
-      </span>
-      <span className="text-slate-400 font-bold text-sm">คน</span>
-    </div>
-  </Link>
+          {/* 2. กล่องนักศึกษา */}
+          <Link href="/admin/users?tab=STUDENT" className="block bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm text-left hover:shadow-xl hover:border-blue-100 hover:scale-[1.01] transition-all duration-300 group active:scale-[0.99]">
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">นักศึกษาทั้งหมด</p>
+            <div className="flex items-baseline gap-2 mt-2">
+              <span className="text-4xl font-black text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
+                {isLoading ? '...' : stats.students}
+              </span>
+              <span className="text-slate-400 font-bold text-sm">คน</span>
+            </div>
+          </Link>
 
-  {/* 3. กล่องรายวิชา (ถ้าบอสมีหน้าจัดการวิชาแยก ก็ลิงก์ไปหน้านั้นได้เลยครับ) */}
-  <Link href="/admin/courses" className="block bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm text-left hover:shadow-xl hover:border-blue-100 hover:scale-[1.01] transition-all duration-300 group active:scale-[0.99]">
-    <p className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">รายวิชาในระบบ</p>
-    <div className="flex items-baseline gap-2 mt-2">
-      <span className="text-4xl font-black text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
-        3
-      </span>
-      <span className="text-slate-400 font-bold text-sm">วิชา</span>
-    </div>
-  </Link>
+          {/* 3. กล่องรายวิชา */}
+          <Link href="/admin/courses" className="block bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm text-left hover:shadow-xl hover:border-blue-100 hover:scale-[1.01] transition-all duration-300 group active:scale-[0.99]">
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">รายวิชาในระบบ</p>
+            <div className="flex items-baseline gap-2 mt-2">
+              <span className="text-4xl font-black text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
+                {isLoading ? '...' : stats.courses}
+              </span>
+              <span className="text-slate-400 font-bold text-sm">วิชา</span>
+            </div>
+          </Link>
 
-</div>
+        </div>
 
-        {/*  เมนูจัดการหลัก */}
+        {/* เมนูจัดการหลัก */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
 
           {/* ส่วนจัดการบัญชีผู้ใช้ */}
@@ -106,7 +106,6 @@ export default function AdminDashboard() {
           {/* ส่วนจัดการรายงานและระบบ */}
           <section className="bg-white p-8 rounded-[2rem] shadow-xl border border-slate-100">
             <div className="flex items-center gap-4 mb-6">
-              
               <h3 className="text-xl font-black text-slate-800">รายงานและภาพรวม</h3>
             </div>
             <div className="space-y-3">

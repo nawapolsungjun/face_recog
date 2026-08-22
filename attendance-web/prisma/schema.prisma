@@ -29,23 +29,24 @@ model User {
 }
 
 model Admin {
-  id         Int      @id @default(autoincrement())
-  userId     String   @unique
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          Int      @id @default(autoincrement())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  name       String   // ชื่อ Admin
-  employeeId String?  @unique // รหัสพนักงาน (ถ้ามี)
+  firstName   String   // ชื่อจริง
+  lastName    String   // นามสกุล
+  employeeId  String?  @unique // รหัสพนักงาน (ถ้ามี)
 }
 
 model Teacher {
-  id         Int      @id @default(autoincrement())
-  userId     String   @unique
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          Int      @id @default(autoincrement())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  name       String   
-  department String?  
+  firstName   String   // ชื่อจริง
+  lastName    String   // นามสกุล
   
-  courses    Course[]
+  courses     Course[]
 }
 
 model Course {
@@ -68,7 +69,8 @@ model Course {
 model Student {
   id          Int      @id @default(autoincrement())
   studentCode String   @unique
-  name        String
+  firstName   String   // ชื่อจริง
+  lastName    String   // นามสกุล
   password    String   
   faceVectors String?  
   
@@ -79,7 +81,7 @@ model Student {
   attendances Attendance[]
 }
 
-// ตารางใหม่: สำหรับเก็บบันทึกรอบการเช็คชื่อและรูปภาพที่อัปโหลดสแกน
+// ตารางสำหรับเก็บบันทึกรอบการเช็คชื่อและรูปภาพที่อัปโหลดสแกน
 model AttendanceSession {
   id          String       @id @default(cuid())
   roundNumber Int          // ครั้งที่ 1, 2, 3...
@@ -96,20 +98,25 @@ model AttendanceSession {
 }
 
 model Attendance {
-  id          Int      @id @default(autoincrement())
-  date        DateTime @default(now()) 
-  status      String   
-  imagePath   String?  
+  id         Int      @id @default(autoincrement())
+  date       DateTime @default(now()) 
+  status     String   
+  imagePath  String?  
   
-  studentId   Int
-  student     Student  @relation(fields: [studentId], references: [id])
+  // ฟิลด์สำหรับบันทึกการแก้ไขด้วยตนเอง
+  isManual   Boolean  @default(false)
+  remark     String?  // เหตุผลหรือหมายเหตุ เช่น "ลาป่วย มีใบรับรองแพทย์"
+  updatedAt  DateTime @updatedAt
+
+  studentId  Int
+  student    Student  @relation(fields: [studentId], references: [id])
   
-  courseId    String
-  course      Course   @relation(fields: [courseId], references: [id])
+  courseId   String
+  course     Course   @relation(fields: [courseId], references: [id])
 
-  // เชื่อมโยงกับรอบการเช็คชื่อแบบ Optional (รองรับข้อมูลเก่าที่ไม่เคยมี sessionId)
-  sessionId   String?
-  session     AttendanceSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  // เชื่อมโยงกับรอบการเช็คชื่อแบบ Optional
+  sessionId  String?
+  session    AttendanceSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
-  createdAt   DateTime @default(now())
+  createdAt  DateTime @default(now())
 }

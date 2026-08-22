@@ -1,13 +1,15 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+// ป้องกัน Next.js Cache เพื่อให้ดึงข้อมูลล่าสุดเสมอ
+export const dynamic = 'force-dynamic';
+
 /**
- * 🔍 [GET] - ดึงรายชื่อผู้ใช้ทั้งหมดพร้อมข้อมูลเสริม (Teacher/Student)
- * รองรับการแสดงผล: ชื่อ, อีเมล, แผนกวิชา(อาจารย์), รหัสนักศึกษา(นักศึกษา)
+ * [GET] - ดึงรายชื่อผู้ใช้ทั้งหมดพร้อมข้อมูลแยกชื่อ-นามสกุล (Teacher/Student)
  */
 export async function GET() {
   try {
-    // 1. ดึงข้อมูล User พร้อมความสัมพันธ์ Teacher และ Student แบบครบถ้วน
+    // 1. ดึงข้อมูล User พร้อมความสัมพันธ์ Teacher และ Student
     const users = await prisma.user.findMany({
       include: {
         teacher: true,
@@ -18,32 +20,33 @@ export async function GET() {
       }
     });
 
-    // 2. Map ข้อมูลให้เป็นโครงสร้าง Flatten Data เพื่อให้หน้าบ้านจัดการง่าย
+    // 2. จัดรูปแบบข้อมูลส่งกลับหน้าบ้าน
     const safeData = users.map((user: any) => {
-      let displayName = "ไม่ระบุชื่อ";
+      let firstName = "";
+      let lastName = "";
       let sCode = null;
-      let dept = null; // 🚀 เพิ่มตัวแปรสำหรับเก็บแผนกวิชา
 
-      // ตรวจสอบบทบาทและดึงข้อมูลเฉพาะทาง
       if (user.role === 'TEACHER' && user.teacher) {
-        displayName = user.teacher.name;
-        dept = user.teacher.department; // 🔥 ดึงข้อมูลแผนกออกมา
+        firstName = user.teacher.firstName || "";
+        lastName = user.teacher.lastName || "";
       } else if (user.role === 'STUDENT' && user.student) {
-        displayName = user.student.name;
+        firstName = user.student.firstName || "";
+        lastName = user.student.lastName || "";
         sCode = user.student.studentCode;
-      } else if (user.role === 'ADMIN') {
-        displayName = "ผู้ดูแลระบบ";
       }
+
+      const fullName = `${firstName} ${lastName}`.trim() || "ไม่ระบุชื่อ";
 
       return {
         id: user.id,
         email: user.email,
-        // ใช้ username จาก DB ถ้าไม่มีให้ใช้ส่วนหน้าของ email
-        username: user.username || user.email.split('@')[0], 
+        username: user.username || user.email.split('@')[0],
         role: user.role,
-        name: displayName,
+        firstName: firstName,
+        lastName: lastName,
+        name: fullName,
         studentCode: sCode,
-        department: dept // ✅ ส่งแผนกวิชาออกไปเพื่อให้หน้าแก้ไข (Modal) ใช้งานได้
+        createdAt: user.createdAt,
       };
     });
 
@@ -53,7 +56,7 @@ export async function GET() {
     });
 
   } catch (error: any) {
-    console.error("❌ Admin Users GET Error:", error.message);
+    console.error("Admin Users GET Error:", error.message);
     return NextResponse.json(
       { success: false, error: 'ไม่สามารถดึงข้อมูลผู้ใช้ได้: ' + error.message }, 
       { status: 500 }
@@ -62,8 +65,7 @@ export async function GET() {
 }
 
 /**
- * 🗑️ [DELETE] - ยกเลิกบัญชีผู้ใช้ถาวร
- * การลบที่ User จะทำการลบข้อมูลใน Teacher/Student ที่เชื่อมกันผ่าน Cascade
+ * [DELETE] - ยกเลิกบัญชีผู้ใช้ถาวร
  */
 export async function DELETE(request: Request) {
   try {
@@ -74,15 +76,15 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: 'ไม่พบ ID ผู้ใช้ที่ต้องการลบ' }, { status: 400 });
     }
 
-    // ลบข้อมูลจากตาราง User (Cascade Delete จะจัดการตารางลูกเอง)
+    // ลบข้อมูลจากตาราง User (Cascade Delete จะจัดการข้อมูลที่เชื่อมโยงกัน)
     await prisma.user.delete({
       where: { id: id }
     });
 
-    return NextResponse.json({ success: true, message: 'ลบบัญชีผู้ใช้เรียบร้อยแล้วครับบอส' });
+    return NextResponse.json({ success: true, message: 'ลบบัญชีผู้ใช้เรียบร้อยแล้ว' });
 
   } catch (error: any) {
-    console.error("❌ Admin Users DELETE Error:", error.message);
+    console.error("Admin Users DELETE Error:", error.message);
     return NextResponse.json(
       { success: false, error: 'ไม่สามารถลบผู้ใช้ได้ (ข้อมูลอาจมีการเชื่อมโยงกับรายวิชาหรือประวัติเช็คชื่อ)' }, 
       { status: 500 }

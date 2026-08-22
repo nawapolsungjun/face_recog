@@ -1,27 +1,42 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import jwt from 'jsonwebtoken';
-import { headers } from 'next/headers';
 
-export async function GET() {
+export const dynamic = 'force-dynamic';
+
+export async function GET(request: Request) {
   try {
-    // 1. ดึง Token จาก Header เพื่อดูว่าเป็นอาจารย์คนไหน (ตามฟังก์ชัน 1.1)
-    const headerList = headers();
-    const authHeader = (await headerList).get('authorization');
+    // 1. ดึง Token จาก Authorization Header
+    const authHeader = request.headers.get('authorization');
     const token = authHeader?.split(' ')[1];
 
     if (!token) {
-      return NextResponse.json({ success: false, error: 'ไม่พบ Token' }, { status: 401 });
+      return NextResponse.json(
+        { success: false, error: 'ไม่พบ Token กรุณาเข้าสู่ระบบ' }, 
+        { status: 401 }
+      );
     }
 
     // 2. ถอดรหัส Token
-    const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    
-    // 3. ดึงข้อมูลอาจารย์และรายวิชา (ตามฟังก์ชัน 2.5)
-    const teacherData = await prisma.teacher.findUnique({
-      where: { userId: decoded.userId },
+    const decoded: any = jwt.verify(
+      token, 
+      process.env.JWT_SECRET || 'your-secret-key'
+    );
+
+    const teacherUserId = decoded.userId || decoded.id;
+    const parsedId = parseInt(String(teacherUserId), 10);
+
+    // 3. ค้นหาข้อมูลอาจารย์และรายวิชาทั้งหมดที่สอน (รองรับทั้ง userId และ id)
+    const teacherData = await prisma.teacher.findFirst({
+      where: {
+        OR: [
+          { userId: String(teacherUserId) },
+          ...(!isNaN(parsedId) ? [{ id: parsedId }] : [])
+        ]
+      },
       include: {
         courses: {
+          orderBy: { createdAt: 'desc' },
           include: {
             _count: {
               select: { students: true }
@@ -32,17 +47,38 @@ export async function GET() {
     });
 
     if (!teacherData) {
-      return NextResponse.json({ success: false, error: 'ไม่พบข้อมูลอาจารย์' }, { status: 404 });
+      return NextResponse.json(
+        { success: false, error: 'ไม่พบข้อมูลอาจารย์ในระบบ' }, 
+        { status: 404 }
+      );
     }
+
+    const fullName = `${teacherData.firstName || ''} ${teacherData.lastName || ''}`.trim() || 'ไม่ระบุชื่อ';
 
     return NextResponse.json({ 
       success: true, 
       data: teacherData.courses,
-      teacher: { name: teacherData.name } 
+      teacher: { 
+        id: teacherData.id,
+        firstName: teacherData.firstName,
+        lastName: teacherData.lastName,
+        name: fullName 
+      } 
     });
 
   } catch (error: any) {
-    console.error("❌ API Error:", error.message);
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    console.error("Teacher Courses API Error:", error.message);
+    
+    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+      return NextResponse.json(
+        { success: false, error: 'Session หมดอายุ กรุณาเข้าสู่ระบบใหม่' }, 
+        { status: 401 }
+      );
+    }
+
+    return NextResponse.json(
+      { success: false, error: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายวิชา: ' + error.message }, 
+      { status: 500 }
+    );
   }
 }

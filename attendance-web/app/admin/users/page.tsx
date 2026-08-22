@@ -7,16 +7,12 @@ export default function UserManagementPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 🚀 อ่านค่า Parameter จาก URL ป้องกัน Error การจัดเรียงลำดับ
   const searchParams = useSearchParams();
-  const urlTab = searchParams.get('tab'); 
-
-  // 🚀 กำหนดให้สลับ Tab เริ่มต้นตามที่คลิกมาจากหน้าแรก (ถ้าไม่มีค่าจะตั้งเป็น 'TEACHER' อัตโนมัติ)
+  const urlTab = searchParams.get('tab');
   const [tab, setTab] = useState<'TEACHER' | 'STUDENT'>(
     urlTab === 'STUDENT' ? 'STUDENT' : 'TEACHER'
   );
 
-  // --- State สำหรับการแก้ไข ---
   const [editingUser, setEditingUser] = useState<any>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -39,14 +35,12 @@ export default function UserManagementPage() {
     fetchUsers(); 
   }, []);
 
-  // 🚀 เพิ่มฟังก์ชันดักจับ เผื่อผู้ใช้สลับลิงก์จากแถบนำทางหลักโดยไม่ Refresh หน้าใหม่
   useEffect(() => {
     if (urlTab === 'STUDENT' || urlTab === 'TEACHER') {
       setTab(urlTab);
     }
   }, [urlTab]);
 
-  // --- 🛠 ฟังก์ชันอัปเดตข้อมูล ---
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsUpdating(true);
@@ -58,7 +52,7 @@ export default function UserManagementPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(data.message || 'อัปเดตข้อมูลสำเร็จแล้วครับบอส!');
+        alert('อัปเดตข้อมูลสำเร็จแล้ว');
         setEditingUser(null);
         fetchUsers();
       } else {
@@ -72,20 +66,30 @@ export default function UserManagementPage() {
   };
 
   const deleteUser = async (id: string, name: string) => {
-    if (!confirm(`ยืนยันการ "ยกเลิกบัญชี" ของคุณ ${name}?\nข้อมูลทั้งหมดที่เกี่ยวข้องจะถูกลบถาวร`)) return;
+    if (!confirm(`ยืนยันการ "ยกเลิกบัญชี" ของคุณ ${name}?`)) return;
     try {
       const res = await fetch(`/api/admin/users?id=${id}`, { method: 'DELETE' });
       const json = await res.json();
       if (json.success) {
-        alert('ยกเลิกบัญชีเรียบร้อยแล้วครับบอส');
+        alert('ลบบัญชีเรียบร้อยแล้ว');
         fetchUsers();
       }
-    } catch (err) {
-      alert('เกิดข้อผิดพลาด');
+    } catch (err) { 
+      alert('เกิดข้อผิดพลาด'); 
     }
   };
 
-  const filteredUsers = users.filter(u => u.role === tab);
+  // กรองตามแท็บ และเรียงลำดับรหัสนักศึกษา / ชื่อ จากน้อยไปมาก
+  const filteredUsers = users
+    .filter(u => u.role === tab)
+    .sort((a, b) => {
+      if (tab === 'STUDENT') {
+        const codeA = a.studentCode || '';
+        const codeB = b.studentCode || '';
+        return codeA.localeCompare(codeB, undefined, { numeric: true });
+      }
+      return (a.firstName || '').localeCompare(b.firstName || '', 'th');
+    });
 
   return (
     <div className="min-h-screen bg-slate-50 p-6 md:p-10 font-sans text-slate-900">
@@ -101,8 +105,26 @@ export default function UserManagementPage() {
           </div>
           
           <div className="flex bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm">
-            <button onClick={() => setTab('TEACHER')} className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all ${tab === 'TEACHER' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-slate-400'}`}>อาจารย์</button>
-            <button onClick={() => setTab('STUDENT')} className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all ${tab === 'STUDENT' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-slate-400'}`}>นักศึกษา</button>
+            <button 
+              onClick={() => setTab('TEACHER')} 
+              className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all ${
+                tab === 'TEACHER' 
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              อาจารย์
+            </button>
+            <button 
+              onClick={() => setTab('STUDENT')} 
+              className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all ${
+                tab === 'STUDENT' 
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              นักศึกษา
+            </button>
           </div>
         </div>
 
@@ -110,50 +132,60 @@ export default function UserManagementPage() {
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50/50">
               <tr>
-                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Username / อีเมล</th>
-                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">ข้อมูลผู้ใช้</th>
+                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest w-16 text-center">ลำดับ</th>
+                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  {tab === 'STUDENT' ? 'รหัสประจำตัว' : 'อีเมล'}
+                </th>
+                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">ชื่อ - นามสกุล</th>
                 <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">การจัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {loading && (
+              {loading ? (
                 <tr>
-                  <td colSpan={3} className="text-center p-10 text-slate-400 font-bold animate-pulse">⌛ กำลังโหลดรายชื่อ...</td>
+                  <td colSpan={4} className="text-center p-10 text-slate-400 font-bold animate-pulse">กำลังโหลดรายชื่อ...</td>
                 </tr>
-              )}
-              {!loading && filteredUsers.map((user) => (
-                <tr key={user.id} className="hover:bg-blue-50/30 transition-all group">
-                  <td className="p-6">
-                    <div className="font-mono font-bold text-blue-600 truncate max-w-[200px]">{user.studentCode || user.email}</div>
-                    {user.studentCode && <div className="text-[10px] text-slate-400 font-bold mt-1 uppercase">CODE: {user.studentCode}</div>}
-                  </td>
-                  <td className="p-6">
-                    <div className="font-black text-slate-700 text-lg">{user.name}</div>
-                    {user.department ? (
-                      <div className="text-[11px] font-bold text-blue-500 uppercase">{user.department}</div>
-                    ) : (
-                      <div className="text-[9px] font-black text-slate-300 uppercase">{user.role}</div>
-                    )}
-                  </td>
-                  <td className="p-6 text-center flex justify-center gap-2">
-                    <button 
-                      onClick={() => setEditingUser({ ...user, password: '' })}
-                      className="bg-blue-50 text-blue-600 px-4 py-2.5 rounded-xl font-black text-xs hover:bg-blue-600 hover:text-white transition-all shadow-sm"
-                    >
-                      แก้ไข
-                    </button>
-                    <button 
-                      onClick={() => deleteUser(user.id, user.name)}
-                      className="bg-red-50 text-red-500 px-4 py-2.5 rounded-xl font-black text-xs hover:bg-red-600 hover:text-white transition-all shadow-sm"
-                    >
-                      ยกเลิกบัญชี
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {!loading && filteredUsers.length === 0 && (
+              ) : filteredUsers.length > 0 ? (
+                filteredUsers.map((user, index) => {
+                  const displayName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.name || 'ไม่ระบุชื่อ';
+
+                  return (
+                    <tr key={user.id} className="hover:bg-blue-50/30 transition-all group">
+                      <td className="p-6 text-sm font-bold text-slate-400 text-center">
+                        {index + 1}
+                      </td>
+                      <td className="p-6">
+                        <div className="font-mono font-bold text-blue-600 text-base">
+                          {user.studentCode || user.email}
+                        </div>
+                      </td>
+                      <td className="p-6">
+                        <div className="font-black text-slate-700 text-lg">
+                          {displayName}
+                        </div>
+                      </td>
+                      <td className="p-6 text-center">
+                        <div className="flex justify-center gap-2">
+                          <button 
+                            onClick={() => setEditingUser({ ...user })} 
+                            className="bg-blue-50 text-blue-600 px-4 py-2.5 rounded-xl font-black text-xs hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+                          >
+                            แก้ไข
+                          </button>
+                          <button 
+                            onClick={() => deleteUser(user.id, displayName)} 
+                            className="bg-red-50 text-red-500 px-4 py-2.5 rounded-xl font-black text-xs hover:bg-red-600 hover:text-white transition-all shadow-sm"
+                          >
+                            ยกเลิกบัญชี
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
                 <tr>
-                  <td colSpan={3} className="text-center p-10 text-slate-400 font-bold">❌ ไม่พบข้อมูลรายชื่อในกลุ่มนี้</td>
+                  <td colSpan={4} className="text-center p-10 text-slate-400 font-bold">ไม่พบข้อมูลรายชื่อในกลุ่มนี้</td>
                 </tr>
               )}
             </tbody>
@@ -161,7 +193,7 @@ export default function UserManagementPage() {
         </div>
       </div>
 
-      {/* แก้ไขข้อมูล */}
+      {/* Modal แก้ไขข้อมูล */}
       {editingUser && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md p-8 animate-in fade-in zoom-in duration-200 border border-slate-100">
@@ -169,69 +201,58 @@ export default function UserManagementPage() {
               <div>
                 <h2 className="text-2xl font-black text-slate-800">แก้ไขข้อมูล</h2>
                 <span className="px-3 py-1 bg-blue-100 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest mt-2 inline-block">
-                  {editingUser.role}
+                  {editingUser.role === 'STUDENT' ? 'นักศึกษา' : 'อาจารย์'}
                 </span>
               </div>
-              <button onClick={() => setEditingUser(null)} className="text-slate-300 hover:text-slate-500 transition-colors text-2xl font-bold">×</button>
+              <button onClick={() => setEditingUser(null)} className="text-slate-300 hover:text-slate-500 text-2xl font-bold">×</button>
             </div>
             
             <form onSubmit={handleUpdate} className="space-y-4">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">ชื่อ-นามสกุล</label>
-                <input 
-                  type="text" 
-                  value={editingUser.name || ''}
-                  onChange={(e) => setEditingUser({...editingUser, name: e.target.value})}
-                  className="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 font-bold mt-1 text-slate-700"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">อีเมลระบบ / Username</label>
-                <input 
-                  type="email" 
-                  value={editingUser.email || ''}
-                  onChange={(e) => setEditingUser({...editingUser, email: e.target.value})}
-                  className="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 font-bold mt-1 text-slate-700"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black text-amber-500 uppercase ml-1 tracking-widest">
-                  รหัสผ่านใหม่ (ปล่อยว่างถ้าไม่ต้องการเปลี่ยน)
-                </label>
-                <input 
-                  type="password" 
-                  placeholder="กรอกรหัสผ่านใหม่เพื่อ Reset"
-                  value={editingUser.password || ''}
-                  onChange={(e) => setEditingUser({...editingUser, password: e.target.value})}
-                  className="w-full p-4 bg-amber-50/50 rounded-2xl border-2 border-transparent focus:border-amber-200 focus:ring-2 focus:ring-amber-500 font-bold mt-1 text-slate-700 placeholder:text-slate-300 transition-all"
-                />
-              </div>
-
-              {editingUser.role === 'TEACHER' && (
-                <div className="animate-in slide-in-from-top-2 duration-300">
-                  <label className="text-[10px] font-black text-blue-500 uppercase ml-1 italic tracking-widest">ภาควิชา / แผนกวิชา</label>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">ชื่อจริง</label>
                   <input 
                     type="text" 
-                    placeholder="เช่น เทคโนโลยีสารสนเทศ"
-                    value={editingUser.department || ''}
-                    onChange={(e) => setEditingUser({...editingUser, department: e.target.value})}
-                    className="w-full p-4 bg-blue-50/50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 font-bold mt-1 text-blue-700 placeholder:text-blue-200"
+                    value={editingUser.firstName || ''} 
+                    onChange={e => setEditingUser({...editingUser, firstName: e.target.value})} 
+                    className="w-full p-3.5 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 font-bold mt-1 text-slate-700" 
+                    placeholder="ชื่อจริง" 
+                    required 
                   />
                 </div>
-              )}
-
-              {editingUser.role === 'STUDENT' && (
-                <div className="animate-in slide-in-from-top-2 duration-300">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">รหัสนักศึกษา</label>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">นามสกุล</label>
                   <input 
                     type="text" 
-                    value={editingUser.studentCode || ''}
-                    onChange={(e) => setEditingUser({...editingUser, studentCode: e.target.value})}
-                    className="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 font-bold mt-1 text-slate-700"
+                    value={editingUser.lastName || ''} 
+                    onChange={e => setEditingUser({...editingUser, lastName: e.target.value})} 
+                    className="w-full p-3.5 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 font-bold mt-1 text-slate-700" 
+                    placeholder="นามสกุล" 
+                    required 
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">อีเมลระบบ</label>
+                <input 
+                  type="email" 
+                  value={editingUser.email || ''} 
+                  onChange={e => setEditingUser({...editingUser, email: e.target.value})} 
+                  className="w-full p-3.5 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 font-bold mt-1 text-slate-700" 
+                  placeholder="อีเมล" 
+                  required 
+                />
+              </div>
+
+              {editingUser.role === 'STUDENT' && (
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">รหัสประจำตัว</label>
+                  <input 
+                    type="text" 
+                    value={editingUser.studentCode || ''} 
+                    onChange={e => setEditingUser({...editingUser, studentCode: e.target.value})} 
+                    className="w-full p-3.5 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 font-bold mt-1 text-slate-700" 
                   />
                 </div>
               )}
@@ -239,17 +260,17 @@ export default function UserManagementPage() {
               <div className="flex gap-3 mt-8">
                 <button 
                   type="button" 
-                  onClick={() => setEditingUser(null)}
+                  onClick={() => setEditingUser(null)} 
                   className="flex-1 py-4 font-black text-slate-400 hover:text-slate-600 transition-all text-sm"
                 >
                   ยกเลิก
                 </button>
                 <button 
                   type="submit" 
-                  disabled={isUpdating}
-                  className="flex-[2] bg-slate-900 text-white py-4 rounded-2xl font-black shadow-xl shadow-slate-200 hover:bg-black transition-all active:scale-95 disabled:bg-slate-300"
+                  disabled={isUpdating} 
+                  className="flex-[2] bg-slate-900 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-black transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
                 >
-                  {isUpdating ? ' บันทึก...' : 'บันทึกการแก้ไข'}
+                  {isUpdating ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
                 </button>
               </div>
             </form>

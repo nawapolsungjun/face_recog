@@ -1,67 +1,93 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { studentId, courseId, status, date, time } = body;
+    const { studentId, courseId, status, date, time, remark } = body;
 
-    // 1. จัดการเรื่องวันที่และเวลา
-    const targetDate = new Date(date);
-
-    if (time) {
-      // กรณีระบุเวลามา (HH:mm) ให้นำเวลามาตั้งค่า
-      const [hours, minutes] = time.split(':').map(Number);
-      targetDate.setHours(hours, minutes, 0, 0);
-    } else {
-      // กรณีไม่ได้ระบุเวลา ให้ตั้งเป็น 7 โมงเช้าตามเดิม
-      targetDate.setHours(7, 0, 0, 0);
+    if (!studentId || !courseId || !status || !date) {
+      return NextResponse.json(
+        { success: false, error: 'ข้อมูลไม่ครบถ้วน (ต้องการ studentId, courseId, status และ date)' },
+        { status: 400 }
+      );
     }
 
-    // 2. ใช้ findFirst เพื่อเช็คก่อนว่ามี Record ของนักศึกษาคนนี้ ในวิชานี้ วันนี้หรือยัง
-    const startOfDay = new Date(new Date(date).setHours(0, 0, 0, 0));
-    const endOfDay = new Date(new Date(date).setHours(23, 59, 59, 999));
+    const numericStudentId = Number(studentId);
 
+    // 1. กำหนดวันที่และเวลาเป้าหมาย
+    const targetDate = new Date(date);
+    if (time) {
+      const [hours, minutes] = time.split(':').map(Number);
+      targetDate.setHours(hours || 0, minutes || 0, 0, 0);
+    } else {
+      const now = new Date();
+      targetDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), 0);
+    }
+
+    // 2. กำหนดช่วงเวลาของวันนั้น (00:00 - 23:59:59)
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // 3. ค้นหารายการเช็คชื่อล่าสุดของนักศึกษาในวันนั้น
     const existingRecord = await prisma.attendance.findFirst({
       where: {
-        studentId: Number(studentId),
-        courseId: courseId,
-        date: {
+        studentId: numericStudentId,
+        courseId: String(courseId),
+        createdAt: {
           gte: startOfDay,
           lte: endOfDay,
         },
+      },
+      orderBy: {
+        createdAt: 'desc',
       },
     });
 
     let result;
 
     if (existingRecord) {
-      // ถ้ามีแล้ว Update สถานะและเวลาใหม่
+      // มีข้อมูลเดิม: อัปเดตสถานะ เวลา และบันทึก Audit trail
       result = await prisma.attendance.update({
         where: { id: existingRecord.id },
-        data: { 
+        data: {
           status: status,
-          date: targetDate
+          createdAt: targetDate,
+          isManual: true,
+          remark: remark || 'แก้ไขโดยอาจารย์',
+          updatedAt: new Date(),
         },
       });
     } else {
-      // ถ้ายังไม่มี Create Record ใหม่พร้อมเวลา
+      // ยังไม่มีข้อมูล: สร้างรายการเช็คชื่อใหม่
       result = await prisma.attendance.create({
         data: {
-          studentId: Number(studentId),
-          courseId: courseId,
+          studentId: numericStudentId,
+          courseId: String(courseId),
           status: status,
-          date: targetDate,
+          createdAt: targetDate,
+          isManual: true,
+          remark: remark || 'แก้ไขโดยอาจารย์',
+          updatedAt: new Date(),
         },
       });
     }
 
-    return NextResponse.json({ success: true, data: result });
+    return NextResponse.json({ 
+      success: true, 
+      message: 'อัปเดตสถานะการเข้าเรียนเรียบร้อยแล้ว',
+      data: result 
+    });
 
   } catch (error: any) {
     console.error("Direct Attendance API Error:", error.message);
     return NextResponse.json(
-      { success: false, error: 'ไม่สามารถบันทึกข้อมูลได้' },
+      { success: false, error: error.message || 'ไม่สามารถบันทึกข้อมูลได้' },
       { status: 500 }
     );
   }

@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 
+export const dynamic = 'force-dynamic';
+
 /**
- * 🔍 [GET] - ดึงข้อมูลโปรไฟล์นักศึกษามาเช็ค (ฉบับป้องกัน Error 500)
+ * [GET] - ดึงข้อมูลโปรไฟล์นักศึกษา (รองรับค้นหาทั้งจาก userId และ id)
  */
 export async function GET(request: Request) {
   try {
@@ -14,50 +16,61 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: 'ID นักศึกษาไม่ถูกต้อง' }, { status: 400 });
     }
 
-    // 🚀 เปลี่ยนจาก findUnique เป็น findFirst เพื่อป้องกัน Error กรณีฟิลด์ไม่ใช่ Unique ใน DB
     const student = await prisma.student.findFirst({
       where: { 
-        userId: studentId // มั่นใจว่าใน Schema ตาราง Student มีฟิลด์ userId ที่เก็บ UUID นะครับ
+        OR: [
+          { userId: studentId },
+          { id: isNaN(Number(studentId)) ? -1 : Number(studentId) }
+        ]
       },
       select: {
         id: true,
-        name: true,
+        firstName: true,
+        lastName: true,
         studentCode: true,
-        faceVectors: true, // ตัวชี้ชะตาว่าจะโดนดีดไปสแกนหน้าไหม
+        faceVectors: true,
+        userId: true,
       }
     });
 
     if (!student) {
-      console.warn(`⚠️ [Profile API] ไม่พบข้อมูลนักศึกษาสำหรับ User ID: ${studentId}`);
+      console.warn(`[Profile API] ไม่พบข้อมูลนักศึกษาสำหรับ ID: ${studentId}`);
       return NextResponse.json({ 
         success: false, 
-        error: 'ไม่พบข้อมูลนักศึกษาในระบบ (อาจยังไม่ได้ผูกข้อมูล Student)' 
+        error: 'ไม่พบข้อมูลนักศึกษาในระบบ' 
       }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: student });
+    const fullName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || 'ไม่ระบุชื่อ';
+
+    return NextResponse.json({ 
+      success: true, 
+      data: {
+        ...student,
+        name: fullName
+      }
+    });
 
   } catch (error: any) {
-    // 📢 พิมพ์ Error ออกทางหน้าจอ Console ของ Server (Terminal) เพื่อให้บอสตรวจสอบได้ง่าย
-    console.error("❌ [GET Profile Error]:", error.message);
+    console.error("[GET Profile Error]:", error.message);
     return NextResponse.json({ success: false, error: 'Server Error: ' + error.message }, { status: 500 });
   }
 }
 
 /**
- * 🛠 [PUT] - อัปเดตโปรไฟล์นักศึกษา
+ * [PUT] - อัปเดตโปรไฟล์นักศึกษา (ชื่อจริง, นามสกุล และรหัสผ่าน)
  */
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, name, password } = body;
+    const { id, firstName, lastName, name, password } = body;
     const searchId = id ? String(id) : "";
 
     if (!searchId) {
       return NextResponse.json({ success: false, error: 'ไม่พบ ID ผู้ใช้ที่ส่งมา' }, { status: 400 });
     }
 
-    // 1. ค้นหานักศึกษา (ใช้ findFirst เพื่อความยืดหยุ่น)
+    // 1. ค้นหานักศึกษา
     const student = await prisma.student.findFirst({
       where: {
         OR: [
@@ -67,28 +80,45 @@ export async function PUT(request: Request) {
       }
     });
 
-    if (!student || !student.userId) {
+    if (!student) {
       return NextResponse.json({ 
         success: false, 
-        error: `ไม่พบข้อมูลนักศึกษาในระบบ` 
+        error: 'ไม่พบข้อมูลนักศึกษาในระบบ' 
       }, { status: 404 });
     }
 
-    // 2. อัปเดตข้อมูลแบบ Transaction เพื่อความปลอดภัย
+    // จัดการชื่อจริงและนามสกุล
+    let fName = firstName || '';
+    let lName = lastName || '';
+
+    if (!fName && name) {
+      const parts = name.trim().split(/\s+/);
+      fName = parts[0] || '';
+      lName = parts.slice(1).join(' ') || '';
+    }
+
+    // 2. อัปเดตข้อมูลแบบ Transaction
     await prisma.$transaction(async (tx) => {
-      // อัปเดตชื่อในตาราง Student
-      if (name) {
-        await tx.student.update({
-          where: { id: student.id },
-          data: { name: name }
-        });
+      const studentUpdateData: any = {};
+      if (fName) studentUpdateData.firstName = fName;
+      if (lName) studentUpdateData.lastName = lName;
+
+      let hashedPassword = '';
+      if (password && password.trim().length > 0) {
+        hashedPassword = await bcrypt.hash(password, 10);
+        studentUpdateData.password = hashedPassword;
       }
 
-      // อัปเดตรหัสผ่านในตาราง User
-      if (password && password.length > 0) {
-        const hashedPassword = await bcrypt.hash(password, 10);
+      // อัปเดตข้อมูลในตาราง Student
+      await tx.student.update({
+        where: { id: student.id },
+        data: studentUpdateData
+      });
+
+      // อัปเดตรหัสผ่านในตาราง User (ถ้ามีการเปลี่ยนรหัสผ่าน)
+      if (student.userId && hashedPassword) {
         await tx.user.update({
-          where: { id: student.userId as string }, 
+          where: { id: student.userId }, 
           data: { password: hashedPassword }
         });
       }
@@ -96,11 +126,11 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({ 
       success: true, 
-      message: '💾 บันทึกการเปลี่ยนแปลงข้อมูลเรียบร้อยแล้วครับบอส!' 
+      message: 'บันทึกการเปลี่ยนแปลงข้อมูลเรียบร้อยแล้ว' 
     });
 
   } catch (error: any) {
-    console.error("❌ [PUT Profile Error]:", error.message);
+    console.error("[PUT Profile Error]:", error.message);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

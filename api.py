@@ -24,7 +24,7 @@ def process_image_to_np(contents):
     img = ImageOps.exif_transpose(img)
     img = img.convert('RGB')
     
-    # 🚀 ปรับปรุงการ Preprocessing ให้หน้าชัดขึ้น
+    # Preprocessing เพิ่มความคมชัด
     img = ImageOps.autocontrast(img, cutoff=0.5)
     img = ImageEnhance.Brightness(img).enhance(1.1)
     img = ImageEnhance.Contrast(img).enhance(1.2)
@@ -92,22 +92,35 @@ async def check_attendance(
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
+        # ปรับ SQL ให้ดึง firstName และ lastName แทน s.name
         query = """
-            SELECT s.id, s.name, s.faceVectors 
+            SELECT s.id, s.firstName, s.lastName, s.faceVectors 
             FROM Student s
             JOIN _CourseToStudent cts ON s.id = cts.B 
             WHERE cts.A = ? AND s.faceVectors IS NOT NULL
         """
         cursor.execute(query, (course_id,))
-        students = cursor.fetchall()
+        raw_students = cursor.fetchall()
+
+        # จัดเตรียมข้อมูลรายชื่อนักศึกษา
+        students = []
+        for s in raw_students:
+            f_name = s['firstName'] or ""
+            l_name = s['lastName'] or ""
+            full_name = f"{f_name} {l_name}".strip() or "ไม่ระบุชื่อ"
+            students.append({
+                "id": s['id'],
+                "name": full_name,
+                "faceVectors": s['faceVectors']
+            })
 
         final_matches = [None] * len(current_encodings)
-        match_distances = [1.0] * len(current_encodings) # เก็บค่าระยะห่างเพื่อใช้เปรียบเทียบกรณีชื่อซ้ำ
+        match_distances = [1.0] * len(current_encodings)
 
-        # --- ขั้นตอนที่ 1: หา Match ที่ดีที่สุดของแต่ละกรอบ ---
+        # 1. หา Match ที่ดีที่สุดของแต่ละกรอบ
         for idx, current_vec in enumerate(current_encodings):
             best_student = None
-            lowest_dist = 0.52 # ค่าจูนสำหรับรูปหมู่
+            lowest_dist = 0.52
 
             for student in students:
                 try:
@@ -121,16 +134,15 @@ async def check_attendance(
                     if current_min < lowest_dist:
                         lowest_dist = current_min
                         best_student = {"id": student['id'], "name": student['name']}
-                except:
+                except Exception:
                     continue
             
             if best_student:
                 final_matches[idx] = best_student
                 match_distances[idx] = lowest_dist
 
-        # --- ขั้นตอนที่ 2: [🚀 จุดที่ปรับปรุง] กำจัดรายชื่อซ้ำ (De-duplication) ---
-        # 1 รายชื่อ ต้องมีเพียง 1 กรอบที่ 'เหมือนที่สุด' เท่านั้น
-        used_names = {} # เก็บข้อมูล { "ชื่อ": { "index": ลำดับกรอบ, "dist": ระยะห่าง } }
+        # 2. De-duplication จัดการกรณีตรวจพบชื่อซ้ำในหลายกรอบ
+        used_names = {}
 
         for idx, student in enumerate(final_matches):
             if student:
@@ -138,19 +150,12 @@ async def check_attendance(
                 dist = match_distances[idx]
 
                 if name in used_names:
-                    # ถ้าชื่อนี้ตรวจพบซ้ำ ให้เช็คว่ากรอบไหน 'หน้าเหมือน' กว่ากัน
                     if dist < used_names[name]['dist']:
-                        # กรอบใหม่หน้าชัดกว่า -> สั่งให้กรอบเก่าเป็น Unknown
                         final_matches[used_names[name]['index']] = None
-                        # อัปเดตข้อมูลเจ้าของชื่อคนปัจจุบัน
                         used_names[name] = {"index": idx, "dist": dist}
-                        print(f"🔄 Duplicate found for {name}: Keeping index {idx} (better dist)")
                     else:
-                        # กรอบปัจจุบันแพ้กรอบเก่า -> สั่งให้กรอบนี้เป็น Unknown
                         final_matches[idx] = None
-                        print(f"🚫 Duplicate found for {name}: Keeping old index (better dist)")
                 else:
-                    # ชื่อยังไม่เคยถูกใช้ บันทึกไว้
                     used_names[name] = {"index": idx, "dist": dist}
 
         display_names = [m['name'] if m else "Unknown" for m in final_matches]
@@ -159,7 +164,7 @@ async def check_attendance(
         return {"success": True, "matches": display_names}
         
     except Exception as e:
-        print(f"❌ Python Error: {str(e)}")
+        print(f"Python Error: {str(e)}")
         if conn: conn.close()
         return {"success": False, "error": str(e)}
 
