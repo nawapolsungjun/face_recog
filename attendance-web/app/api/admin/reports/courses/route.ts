@@ -1,15 +1,11 @@
-import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * [GET] - ดึงข้อมูลสรุปสถิติการเข้าเรียนแยกตามรายวิชาสำหรับ Admin
- */
 export async function GET() {
   try {
     const courses = await prisma.course.findMany({
-      orderBy: { createdAt: 'desc' },
       include: {
         teacher: {
           select: {
@@ -19,58 +15,91 @@ export async function GET() {
           }
         },
         students: {
-          select: { id: true }
+          select: { id: true, studentCode: true }
         },
         attendances: {
-          select: { status: true }
+          orderBy: [
+            { updatedAt: 'desc' },
+            { createdAt: 'desc' },
+            { id: 'desc' }
+          ]
         }
+      },
+      orderBy: {
+        createdAt: 'desc'
       }
     });
 
-    const reportData = courses.map((course: any) => {
-      const teacherFullName = course.teacher 
-        ? `${course.teacher.firstName || ''} ${course.teacher.lastName || ''}`.trim() 
-        : 'ไม่พบผู้สอน / บัญชีถูกลบ';
+    const reportData = courses.map((course) => {
+      const totalStudents = course.students.length;
+      const teacherName = course.teacher
+        ? `${course.teacher.firstName || ''} ${course.teacher.lastName || ''}`.trim() || 'ไม่ระบุชื่อ'
+        : 'ไม่ระบุอาจารย์';
 
-      const attendances = course.attendances || [];
-      const presentCount = attendances.filter((a: any) => a.status === 'มาเรียน').length;
-      const lateCount = attendances.filter((a: any) => a.status === 'มาสาย').length;
-      const leaveCount = attendances.filter((a: any) => a.status === 'ลา').length;
-      const absentCount = attendances.filter((a: any) => a.status === 'ขาดเรียน').length;
+      // จัดกลุ่มตามวันที่ (YYYY-MM-DD) เพื่อคำนวณแบบรายสัปดาห์ (1 วัน = 1 สัปดาห์)
+      const dayMap = new Map<string, any[]>();
+      course.attendances.forEach((att) => {
+        const targetDate = att.date || att.createdAt;
+        const d = new Date(targetDate);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const dateKey = `${y}-${m}-${day}`;
 
-      const totalAttendances = attendances.length;
-      // คำนวณ % การเข้าเรียน (มาเรียน + มาสาย)
-      const attendanceRate = totalAttendances > 0 
-        ? Math.round(((presentCount + lateCount) / totalAttendances) * 100) 
+        if (!dayMap.has(dateKey)) {
+          dayMap.set(dateKey, []);
+        }
+        dayMap.get(dateKey)!.push(att);
+      });
+
+      let totalPresent = 0;
+      let totalLate = 0;
+      let totalLeave = 0;
+      let totalAbsent = 0;
+
+      // ประมวลผลสถานะล่าสุดของนักศึกษาแต่ละคนในแต่ละวัน
+      dayMap.forEach((records) => {
+        const latestStatusMap = new Map<number, string>();
+        records.forEach((r) => {
+          if (!latestStatusMap.has(r.studentId)) {
+            latestStatusMap.set(r.studentId, r.status);
+          }
+        });
+
+        course.students.forEach((student) => {
+          const st = latestStatusMap.get(student.id) || 'ขาดเรียน';
+          if (st === 'มาเรียน') totalPresent++;
+          else if (st === 'มาสาย') totalLate++;
+          else if (st === 'ลา') totalLeave++;
+          else totalAbsent++;
+        });
+      });
+
+      const totalCheckedRecords = totalPresent + totalLate + totalLeave + totalAbsent;
+      const percentage = totalCheckedRecords > 0
+        ? Math.round(((totalPresent + totalLate) / totalCheckedRecords) * 100)
         : 0;
 
       return {
         id: course.id,
         courseCode: course.courseCode,
         courseName: course.courseName,
-        teacherName: teacherFullName,
-        studentCount: course.students?.length || 0,
+        teacherName,
+        totalStudents,
+        totalWeeks: dayMap.size,
         summary: {
-          present: presentCount,
-          late: lateCount,
-          leave: leaveCount,
-          absent: absentCount,
-          total: totalAttendances
+          present: totalPresent,
+          late: totalLate,
+          leave: totalLeave,
+          absent: totalAbsent,
         },
-        percentage: attendanceRate
+        percentage
       };
     });
 
-    return NextResponse.json({
-      success: true,
-      data: reportData
-    });
-
+    return NextResponse.json({ success: true, data: reportData });
   } catch (error: any) {
-    console.error("Admin Course Reports GET Error:", error.message);
-    return NextResponse.json(
-      { success: false, error: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายงาน: ' + error.message },
-      { status: 500 }
-    );
+    console.error('Admin Courses Report API Error:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
