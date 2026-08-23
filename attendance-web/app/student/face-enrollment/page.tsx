@@ -113,7 +113,7 @@ export default function FaceEnrollmentPage() {
         } else {
           alert(`ตรวจไม่พบใบหน้า: ${data.error}`);
         }
-      } catch (err) {
+      } catch {
         alert('ไม่สามารถติดต่อระบบประมวลผลใบหน้า (Python AI) ได้');
       }
     }
@@ -201,168 +201,200 @@ export default function FaceEnrollmentPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 font-sans text-white">
-      <div className="max-w-xl w-full bg-slate-800 rounded-[2.5rem] shadow-2xl p-10 border border-slate-700/50">
-        <div className="flex justify-between items-center mb-6">
-          <Link href="/student/dashboard" className="text-blue-500 font-bold inline-flex items-center gap-2 hover:translate-x-[-4px] transition-all text-sm">
-            ← กลับหน้า Dashboard
+    <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
+      
+      {/* 1. Header ด้านบนตาม Style Canva (หัวข้อตรงกลาง 100%) */}
+      <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
+        <div className="absolute top-6 left-6">
+          <Link
+            href="/student/dashboard"
+            className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-2 text-xs uppercase tracking-wider transition-all"
+          >
+            ← Back to Dashboard
           </Link>
         </div>
+        <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
+          ระบบเช็คชื่อนักเรียน
+        </h1>
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          ลงทะเบียนใบหน้า: <span className="font-bold text-white">{user?.displayName || 'กำลังโหลด...'}</span> {user?.studentCode ? `(${user.studentCode})` : ''}
+        </p>
+      </header>
 
-        <div className="text-center mb-8 border-b border-slate-700 pb-6">
-          <h1 className="text-3xl font-black text-white">สแกน <span className="text-blue-500">ใบหน้า</span></h1>
-          <p className="text-slate-400 mt-1 font-medium text-sm">
-            นักศึกษา: <span className="text-blue-300 font-bold">{user?.displayName || 'กำลังโหลด...'}</span>
-          </p>
+      {/* 2. Navigation Bar */}
+      <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto">
+        <div className="max-w-xl mx-auto flex items-center justify-center gap-1 min-w-max py-2 text-white font-bold text-xs">
+          <span className="px-3 py-1 bg-white/20 rounded-lg">ลงทะเบียนโมเดลใบหน้า (Face Enrollment)</span>
         </div>
+      </nav>
 
-        {/* เมนูสลับวิธีลงทะเบียน */}
-        <div className="flex bg-slate-700/50 p-1 rounded-2xl border border-slate-600 mb-8">
-          <button 
-            type="button" 
-            onClick={() => setRegMode('upload')} 
-            className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${
-              regMode === 'upload' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Upload Files
-          </button>
-          <button 
-            type="button" 
-            onClick={() => setRegMode('scan')} 
-            className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${
-              regMode === 'scan' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Face Scan
-          </button>
-        </div>
-
-        {/* 1. โหมด Upload รูปภาพ */}
-        <div className={`${regMode === 'upload' ? 'block' : 'hidden'} animate-in fade-in space-y-6`}>
-          <div className="bg-blue-950/50 border border-blue-800/80 rounded-2xl p-4 text-center">
-            <p className="text-xs font-bold text-blue-300">
-              คำแนะนำ: คุณต้องอัปโหลดภาพอย่างน้อย 3 ภาพขึ้นไปเพื่อความแม่นยำในการรู้จำใบหน้า
+      {/* 3. Main Content Card */}
+      <main className="flex-1 max-w-xl w-full mx-auto p-4 md:py-8 flex flex-col justify-center">
+        <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80">
+          
+          <div className="text-center mb-6 pb-4 border-b border-slate-100">
+            <h2 className="text-xl font-black text-slate-800">ลงทะเบียน <span className="text-emerald-700">ใบหน้าใหม่</span></h2>
+            <p className="text-slate-400 mt-1 font-medium text-xs">
+              นักศึกษา: <span className="text-slate-700 font-bold">{user?.displayName || 'กำลังโหลด...'}</span>
             </p>
           </div>
 
-          <div className="p-6 border-2 border-dashed border-slate-600 rounded-[2rem] bg-slate-700/30 text-center">
-            <input 
-              type="file" 
-              multiple 
-              accept="image/*" 
-              onChange={handleFileChange} 
-              disabled={isLoading} 
-              className="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:bg-blue-600 file:text-white cursor-pointer" 
-            />
-            {previews.length > 0 && (
-              <div className="flex flex-wrap justify-center gap-2 mt-5">
-                {previews.map((src, i) => (
-                  <img key={i} src={src} alt={`preview-${i}`} className="w-14 h-14 object-cover rounded-xl border-2 border-slate-600" />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* 2. โหมด Face Scan พร้อมคำแนะนำท่าทาง */}
-        <div className={`${regMode === 'scan' ? 'block' : 'hidden'} animate-in fade-in space-y-6`}>
-          {/* กล่องบอกท่าทางและลำดับมุม */}
-          <div className="bg-blue-950/60 border border-blue-500/40 rounded-2xl p-4 text-center">
-            <div className="inline-block bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase px-3 py-0.5 rounded-full mb-1">
-              มุมที่ {Math.min(scanStepIndex + 1, SCAN_STEPS.length)} / {SCAN_STEPS.length}
-            </div>
-            <h4 className="text-sm font-black text-white">
-              {scanStepIndex < SCAN_STEPS.length ? SCAN_STEPS[scanStepIndex].label : 'เก็บข้อมูลครบถ้วนทุกมุมแล้ว'}
-            </h4>
-            <p className="text-[11px] text-blue-300/80 mt-0.5">
-              {scanStepIndex < SCAN_STEPS.length ? SCAN_STEPS[scanStepIndex].hint : 'กดปุ่มยืนยันด้านล่างเพื่อบันทึกข้อมูล'}
-            </p>
-          </div>
-
-          <div className="flex flex-col items-center p-6 bg-slate-950 rounded-[2rem] border border-slate-700">
-            <div className="w-48 h-48 rounded-full overflow-hidden border-4 border-blue-500 mb-6 relative shadow-lg shadow-blue-500/20">
-              <Webcam 
-                audio={false} 
-                ref={webcamRef} 
-                screenshotFormat="image/jpeg" 
-                className="w-full h-full object-cover scale-x-[-1]" 
-              />
-            </div>
-
-            {/* แถบ Progress Bar */}
-            <div className="w-full bg-slate-800 h-2.5 rounded-full mb-4 max-w-[250px] overflow-hidden">
-              <div className="bg-blue-500 h-full transition-all duration-700" style={{ width: `${scanProgress}%` }}></div>
-            </div>
-
+          {/* เมนูสลับวิธีลงทะเบียน */}
+          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 mb-6">
             <button 
               type="button" 
-              onClick={captureScan} 
-              disabled={isLoading || scanStepIndex >= SCAN_STEPS.length} 
-              className="bg-white hover:bg-slate-100 text-slate-900 px-8 py-3 rounded-xl font-black text-xs active:scale-95 disabled:opacity-40 cursor-pointer transition-all shadow-md"
+              onClick={() => setRegMode('upload')} 
+              className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                regMode === 'upload' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
             >
-              {isLoading 
-                ? 'กำลังประมวลผล...' 
-                : scanStepIndex >= SCAN_STEPS.length 
-                  ? 'สแกนครบทุกมุมแล้ว' 
-                  : `บันทึกมุม: ${SCAN_STEPS[scanStepIndex].label.split(' ')[0]}`}
+              Upload Files
+            </button>
+            <button 
+              type="button" 
+              onClick={() => setRegMode('scan')} 
+              className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                regMode === 'scan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Face Scan
             </button>
           </div>
-        </div>
 
-        {/* ปุ่มเปิด Modal ยืนยัน */}
-        <div className="pt-8 mt-8 border-t border-slate-700">
-          <button
-            type="button"
-            onClick={handleOpenConfirm}
-            disabled={isLoading || (regMode === 'upload' && (!files || files.length < 3)) || (regMode === 'scan' && scanProgress < 60)}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-[1.5rem] font-black text-lg shadow-xl active:scale-95 disabled:bg-slate-700 disabled:text-slate-400 cursor-pointer transition-all"
-          >
-            {isLoading ? 'กำลังประมวลผล...' : 'ยืนยันการลงทะเบียนใบหน้า'}
-          </button>
-          {(previews.length > 0 || capturedVectors.length > 0) && !isLoading && (
-            <button 
-              onClick={handleReset} 
-              className="w-full text-slate-400 hover:text-slate-200 text-center text-xs font-bold mt-4 cursor-pointer"
+          {/* 1. โหมด Upload รูปภาพ */}
+          <div className={`${regMode === 'upload' ? 'block' : 'hidden'} animate-in fade-in space-y-4`}>
+            <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3.5 text-center">
+              <p className="text-xs font-medium text-emerald-800">
+                คำแนะนำ: กรุณาเลือกอัปโหลดอย่างน้อย 3 รูปขึ้นไปเพื่อความแม่นยำในการรู้จำใบหน้า
+              </p>
+            </div>
+
+            <div className="p-6 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50 text-center">
+              <input 
+                type="file" 
+                multiple 
+                accept="image/*" 
+                onChange={handleFileChange} 
+                disabled={isLoading} 
+                className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer" 
+              />
+              {previews.length > 0 && (
+                <div className="flex flex-wrap justify-center gap-2 mt-4">
+                  {previews.map((src, i) => (
+                    <img key={i} src={src} alt={`preview-${i}`} className="w-14 h-14 object-cover rounded-xl border border-slate-200" />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 2. โหมด Face Scan พร้อมคำแนะนำท่าทาง */}
+          <div className={`${regMode === 'scan' ? 'block' : 'hidden'} animate-in fade-in space-y-4`}>
+            <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3.5 text-center">
+              <div className="inline-block bg-emerald-100 text-emerald-800 text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full mb-1">
+                มุมที่ {Math.min(scanStepIndex + 1, SCAN_STEPS.length)} / {SCAN_STEPS.length}
+              </div>
+              <h4 className="text-xs md:text-sm font-bold text-slate-800">
+                {scanStepIndex < SCAN_STEPS.length ? SCAN_STEPS[scanStepIndex].label : 'เก็บข้อมูลครบถ้วนทุกมุมแล้ว'}
+              </h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {scanStepIndex < SCAN_STEPS.length ? SCAN_STEPS[scanStepIndex].hint : 'กดปุ่มยืนยันด้านล่างเพื่อบันทึกข้อมูล'}
+              </p>
+            </div>
+
+            <div className="flex flex-col items-center p-5 bg-slate-50 rounded-xl border border-slate-200/80">
+              <div className="w-44 h-44 rounded-full overflow-hidden border-4 border-emerald-500 mb-4 relative shadow-sm">
+                <Webcam 
+                  audio={false} 
+                  ref={webcamRef} 
+                  screenshotFormat="image/jpeg" 
+                  className="w-full h-full object-cover scale-x-[-1]" 
+                />
+              </div>
+
+              <div className="w-full bg-slate-200 h-2 rounded-full mb-4 max-w-[220px] overflow-hidden">
+                <div className="bg-emerald-600 h-full transition-all duration-500" style={{ width: `${scanProgress}%` }}></div>
+              </div>
+
+              <button 
+                type="button" 
+                onClick={captureScan} 
+                disabled={isLoading || scanStepIndex >= SCAN_STEPS.length} 
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs active:scale-95 disabled:opacity-40 cursor-pointer transition-all shadow-sm"
+              >
+                {isLoading 
+                  ? 'กำลังประมวลผล...' 
+                  : scanStepIndex >= SCAN_STEPS.length 
+                    ? 'สแกนครบทุกมุมแล้ว' 
+                    : `บันทึกมุม: ${SCAN_STEPS[scanStepIndex].label.split(' ')[0]}`}
+              </button>
+            </div>
+          </div>
+
+          {/* ปุ่มยืนยัน */}
+          <div className="pt-6 mt-6 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={handleOpenConfirm}
+              disabled={isLoading || (regMode === 'upload' && (!files || files.length < 3)) || (regMode === 'scan' && scanProgress < 60)}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 rounded-xl font-bold text-sm shadow-sm active:scale-[0.99] disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer transition-all"
             >
-              ล้างข้อมูลและเริ่มใหม่
+              {isLoading ? 'กำลังประมวลผล...' : 'ยืนยันการลงทะเบียนใบหน้า'}
             </button>
+            
+            {(previews.length > 0 || capturedVectors.length > 0) && !isLoading && (
+              <button 
+                onClick={handleReset} 
+                className="w-full text-slate-400 hover:text-slate-600 text-center text-xs font-bold mt-3 cursor-pointer"
+              >
+                ล้างข้อมูลและเริ่มใหม่
+              </button>
+            )}
+
+            <button onClick={() => router.back()} className="w-full text-slate-400 text-center text-xs font-bold mt-3 hover:text-slate-600 cursor-pointer">
+              ย้อนกลับ
+            </button>
+          </div>
+
+          {status && (
+            <div className={`p-3 rounded-xl text-center text-xs font-bold mt-4 border ${
+              status.includes('ข้อผิดพลาด') 
+                ? 'bg-red-50 text-red-600 border-red-100' 
+                : 'bg-emerald-50/60 text-emerald-700 border-emerald-100'
+            }`}>
+              {status}
+            </div>
           )}
         </div>
+      </main>
 
-        {status && (
-          <div className={`p-4 rounded-2xl text-center text-xs font-bold mt-6 border ${
-            status.includes('ข้อผิดพลาด') 
-              ? 'bg-red-950/60 text-red-300 border-red-800' 
-              : 'bg-slate-900/80 text-blue-300 border-slate-700'
-          }`}>
-            {status}
-          </div>
-        )}
-      </div>
+      {/* 4. Footer ด้านล่าง */}
+      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium mt-auto">
+        © 2026 ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+      </footer>
 
       {/* Modal ป๊อบอัปยืนยันการลงทะเบียนใบหน้า */}
       {showConfirmModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-slate-800 border border-slate-700 rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200 text-center">
-            <div className="w-14 h-14 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4 font-black text-2xl">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200 text-center">
+            <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
               ✓
             </div>
             
-            <h3 className="text-2xl font-black text-white">ยืนยันการลงทะเบียนใบหน้า</h3>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+            <h3 className="text-xl font-black text-slate-800">ยืนยันการลงทะเบียนใบหน้า</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
               คุณต้องการบันทึกข้อมูลใบหน้านี้สำหรับนักศึกษา <br />
-              <span className="font-bold text-blue-300 text-sm">{user?.displayName}</span> ({user?.studentCode}) หรือไม่?
+              <span className="font-bold text-emerald-700 text-sm">{user?.displayName}</span> ({user?.studentCode}) หรือไม่?
             </p>
 
-            <div className="bg-slate-900/60 border border-slate-700/60 rounded-2xl p-4 my-6 text-xs text-slate-300 space-y-2">
+            <div className="bg-slate-50 rounded-xl p-4 my-5 text-xs text-slate-600 text-left space-y-2 border border-slate-200/60">
               <div className="flex justify-between">
-                <span className="text-slate-400">รูปแบบที่ใช้:</span>
-                <span className="font-bold text-white">{regMode === 'upload' ? 'อัปโหลดไฟล์รูปภาพ' : 'สแกนผ่านกล้อง'}</span>
+                <span className="text-slate-400 font-bold">รูปแบบที่ใช้:</span>
+                <span className="font-bold text-slate-800">{regMode === 'upload' ? 'อัปโหลดไฟล์รูปภาพ' : 'สแกนผ่านกล้อง'}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">จำนวนข้อมูล:</span>
-                <span className="font-bold text-blue-400">
+                <span className="text-slate-400 font-bold">จำนวนข้อมูล:</span>
+                <span className="font-mono font-bold text-emerald-700">
                   {regMode === 'upload' ? `${files?.length || 0} รูปภาพ` : `ความสมบูรณ์ ${scanProgress}% (${capturedVectors.length} มุม)`}
                 </span>
               </div>
@@ -372,14 +404,14 @@ export default function FaceEnrollmentPage() {
               <button
                 type="button"
                 onClick={() => setShowConfirmModal(false)}
-                className="flex-1 py-4 font-bold text-slate-400 hover:text-slate-200 bg-slate-700/50 hover:bg-slate-700 rounded-2xl transition-all text-sm cursor-pointer"
+                className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 text-xs rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer"
               >
                 ยกเลิก
               </button>
               <button
                 type="button"
                 onClick={handleFinalSave}
-                className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg shadow-blue-600/30 transition-all active:scale-95 cursor-pointer"
+                className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
               >
                 ยืนยันบันทึก
               </button>

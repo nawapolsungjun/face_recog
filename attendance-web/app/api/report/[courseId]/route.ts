@@ -1,144 +1,214 @@
-import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(
-  request: Request,
-  context: { params: Promise<{ id?: string; courseId?: string }> | { id?: string; courseId?: string } }
+  req: Request,
+  { params }: { params: Promise<{ id?: string; courseId?: string }> | { id?: string; courseId?: string } }
 ) {
   try {
-    // 1. รองรับการดึง params ทั้งแบบ Promise (Next.js ใหม่) และ Object ปกติ
-    const resolvedParams = context.params instanceof Promise ? await context.params : context.params;
-    
-    // ดึง courseId จาก params หรือ fallback จาก URL path
-    let courseId = resolvedParams?.id || resolvedParams?.courseId;
-    
+    const resolvedParams = await Promise.resolve(params);
+    const courseId = resolvedParams.courseId || resolvedParams.id;
+
     if (!courseId) {
-      const url = new URL(request.url);
-      const segments = url.pathname.split('/').filter(Boolean);
-      courseId = segments[segments.length - 1]; // ดึง segment ตัวสุดท้ายของ url
+      return NextResponse.json(
+        { success: false, error: 'ไม่พบรหัสรายวิชา' },
+        { status: 400 }
+      );
     }
 
-    if (!courseId || courseId === 'undefined' || courseId === 'null') {
-      return NextResponse.json({ success: false, error: 'ไม่พบ ID รายวิชาที่ระบุ' }, { status: 400 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    const dateStr = searchParams.get('date');
+    const { searchParams } = new URL(req.url);
+    const dateParam = searchParams.get('date');
     const mode = searchParams.get('mode');
 
-    // 2. ดึงข้อมูลรายวิชาและนักศึกษาทั้งหมดในวิชานี้ (ใช้ firstName และ lastName)
-    const courseData = await prisma.course.findUnique({
-      where: { id: courseId },
-      include: {
-        students: {
-          select: {
-            id: true,
-            studentCode: true,
-            firstName: true,
-            lastName: true,
+    // 1. โหมดสรุปสถิติ 18 สัปดาห์ (Weeks Mode: 1 วัน = 1 สัปดาห์)
+    if (mode === 'weeks') {
+      const course = await prisma.course.findUnique({
+        where: { id: courseId },
+        include: {
+          students: true,
+          attendances: {
+            orderBy: [
+              { updatedAt: 'desc' },
+              { createdAt: 'desc' },
+              { id: 'desc' }
+            ]
           }
         }
-      }
-    });
-
-    if (!courseData) {
-      return NextResponse.json({ success: false, error: 'ไม่พบรายวิชาที่ระบุในระบบ' }, { status: 404 });
-    }
-
-    // 3. [MODE: SUMMARY] สรุปภาพรวมสะสมทุกคาบ
-    if (mode === 'summary') {
-      const allAttendances = await prisma.attendance.findMany({
-        where: { courseId: courseId },
       });
 
-      const summaryList = courseData.students.map((student: any) => {
-        const studentAttendances = allAttendances.filter((a: any) => a.studentId === student.id);
-        const present = studentAttendances.filter((a: any) => a.status === 'มาเรียน').length;
-        const late = studentAttendances.filter((a: any) => a.status === 'มาสาย').length;
-        const leave = studentAttendances.filter((a: any) => a.status === 'ลา').length;
-        const absent = studentAttendances.filter((a: any) => a.status === 'ขาดเรียน').length;
-        const fullName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || 'ไม่ระบุชื่อ';
+      if (!course) {
+        return NextResponse.json({ success: false, error: 'ไม่พบรายวิชานี้ในระบบ' }, { status: 404 });
+      }
+
+      const totalStudentsInClass = course.students.length;
+
+      // จัดกลุ่มตามวันที่ (YYYY-MM-DD)
+      const dayMap = new Map<string, any[]>();
+      course.attendances.forEach((att) => {
+        const targetDate = att.date || att.createdAt;
+        const d = new Date(targetDate);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const dateKey = `${y}-${m}-${day}`;
+
+        if (!dayMap.has(dateKey)) {
+          dayMap.set(dateKey, []);
+        }
+        dayMap.get(dateKey)!.push(att);
+      });
+
+      const sortedDates = Array.from(dayMap.keys()).sort();
+
+      const weeksData = sortedDates.map((dateKey) => {
+        const records = dayMap.get(dateKey)!;
+
+        // ดึงสถานะล่าสุดของนักศึกษาแต่ละคน (เนื่องจาก records เรียง desc ไว้แล้ว ตัวแรกที่เจอคือสถานะล่าสุดจริง)
+        const studentLatestStatus = new Map<number, string>();
+        records.forEach((r) => {
+          if (!studentLatestStatus.has(r.studentId)) {
+            studentLatestStatus.set(r.studentId, r.status);
+          }
+        });
+
+        let present = 0;
+        let late = 0;
+        let leave = 0;
+        let absent = 0;
+
+        // เทียบกับนักศึกษาทุกคนในคลาส
+        course.students.forEach((student) => {
+          const st = studentLatestStatus.get(student.id) || 'ขาดเรียน';
+          if (st === 'มาเรียน') present++;
+          else if (st === 'มาสาย') late++;
+          else if (st === 'ลา') leave++;
+          else absent++;
+        });
+
+        const d = new Date(dateKey);
+        const dateStr = d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+
+        const percentage = totalStudentsInClass > 0
+          ? Math.round(((present + late) / totalStudentsInClass) * 100)
+          : 0;
 
         return {
-          id: student.id,
-          studentCode: student.studentCode,
-          firstName: student.firstName,
-          lastName: student.lastName,
-          name: fullName,
+          rawDate: dateKey,
+          dateStr,
           present,
           late,
           leave,
-          absent
+          absent,
+          totalCount: totalStudentsInClass,
+          percentage
         };
       });
 
-      return NextResponse.json({ success: true, data: summaryList });
+      return NextResponse.json({
+        success: true,
+        data: weeksData,
+        totalStudents: totalStudentsInClass
+      });
     }
 
-    // 4. [MODE: DAILY] รายงานประจำวัน
-    const targetDate = dateStr ? new Date(dateStr) : new Date();
+    // 2. โหมดรายงานประจำวัน (Daily Mode)
+    const targetDate = dateParam ? new Date(dateParam) : new Date();
     const startOfDay = new Date(targetDate);
     startOfDay.setHours(0, 0, 0, 0);
 
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
 
-    const attendancesToday = await prisma.attendance.findMany({
-      where: {
-        courseId: courseId,
-        createdAt: {
-          gte: startOfDay,
-          lte: endOfDay
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+      include: {
+        teacher: true,
+        students: {
+          orderBy: { studentCode: 'asc' }
         }
       }
     });
 
-    let presentCount = 0;
-    let lateCount = 0;
-    let leaveCount = 0;
-    let absentCount = 0;
+    if (!course) {
+      return NextResponse.json({ success: false, error: 'ไม่พบรายวิชานี้ในระบบ' }, { status: 404 });
+    }
 
-    const dailyData = courseData.students.map((student: any) => {
-      const att = attendancesToday.find((a: any) => a.studentId === student.id);
-      const status = att ? att.status : 'ขาดเรียน';
-      const fullName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || 'ไม่ระบุชื่อ';
+    const attendances = await prisma.attendance.findMany({
+      where: {
+        courseId: courseId,
+        OR: [
+          {
+            date: {
+              gte: startOfDay,
+              lte: endOfDay
+            }
+          },
+          {
+            createdAt: {
+              gte: startOfDay,
+              lte: endOfDay
+            }
+          }
+        ]
+      },
+      orderBy: [
+        { updatedAt: 'desc' },
+        { createdAt: 'desc' },
+        { id: 'desc' }
+      ]
+    });
 
-      if (status === 'มาเรียน') presentCount++;
-      else if (status === 'มาสาย') lateCount++;
-      else if (status === 'ลา') leaveCount++;
-      else absentCount++;
+    let present = 0, late = 0, leave = 0, absent = 0;
+
+    const reportList = course.students.map((student: any) => {
+      // ค้นหา record ที่อัปเดตล่าสุดของนักศึกษาคนนี้ในวันนั้น
+      const record = attendances.find((att: any) => att.studentId === student.id);
+      const status = record ? record.status : 'ขาดเรียน';
+      const time = record?.createdAt || record?.date || null;
+      const remark = record?.remark || '';
+      const updatedAt = record?.updatedAt || null;
+
+      if (status === 'มาเรียน') present++;
+      else if (status === 'มาสาย') late++;
+      else if (status === 'ลา') leave++;
+      else absent++;
+
+      const displayName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || student.name || 'ไม่ระบุชื่อ';
 
       return {
         id: student.id,
-        attendanceId: att ? att.id : null,
+        studentId: student.id,
         studentCode: student.studentCode,
         firstName: student.firstName,
         lastName: student.lastName,
-        name: fullName,
+        name: displayName,
         status: status,
-        time: att ? att.createdAt : null,
-        isManual: att?.isManual || false,
-        remark: att?.remark || '',
-        updatedAt: att?.updatedAt || null
+        time: time,
+        remark: remark,
+        updatedAt: updatedAt,
+        isManual: record?.isManual || false
       };
     });
 
     return NextResponse.json({
       success: true,
-      data: dailyData,
+      data: reportList,
       summary: {
-        total: courseData.students.length,
-        present: presentCount,
-        late: lateCount,
-        leave: leaveCount,
-        absent: absentCount
+        total: course.students.length,
+        present,
+        late,
+        leave,
+        absent
       }
     });
 
   } catch (error: any) {
-    console.error("Report API Error:", error.message);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error('Report API Error:', error);
+    return NextResponse.json(
+      { success: false, error: error.message || 'เกิดข้อผิดพลาดในการดึงข้อมูลรายงาน' },
+      { status: 500 }
+    );
   }
 }

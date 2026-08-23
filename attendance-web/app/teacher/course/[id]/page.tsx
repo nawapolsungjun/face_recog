@@ -23,6 +23,7 @@ export default function AttendancePage() {
   const router = useRouter();
   const courseId = params.id as string;
 
+  const [courseInfo, setCourseInfo] = useState<{ courseName: string; courseCode: string } | null>(null);
   const [courseStudents, setCourseStudents] = useState<StudentInCourse[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
@@ -31,9 +32,17 @@ export default function AttendancePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [sessionRound, setSessionRound] = useState<number>(1);
 
-  // State ควบคุม Modal ยืนยันการเช็คชื่อ
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  });
+
+  const [dailyRoundNumber, setDailyRoundNumber] = useState<number>(1);
+  const [previousRoundAttendance, setPreviousRoundAttendance] = useState<any[]>([]);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
@@ -41,37 +50,65 @@ export default function AttendancePage() {
 
   const getAuthToken = () => localStorage.getItem('teacher_token') || localStorage.getItem('token');
 
-  // ดึงข้อมูลรายวิชา (นักศึกษาทั้งหมด) และประวัติเพื่อคำนวณรอบถัดไป
   const fetchInitialData = useCallback(async () => {
     const token = getAuthToken();
     try {
-      // 1. ดึงรายชื่อนักศึกษาในวิชา
       const resCourse = await fetch(`/api/courses/${courseId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const courseJson = await resCourse.json();
-      if (courseJson.success && courseJson.data?.students) {
-        setCourseStudents(courseJson.data.students);
-      }
-
-      // 2. ดึงประวัติรอบการเช็คชื่อ
-      const resHistory = await fetch(`/api/attendance/history/${courseId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      const contentType = resHistory.headers.get('content-type');
-      if (resHistory.ok && contentType && contentType.includes('application/json')) {
-        const historyJson = await resHistory.json();
-        if (historyJson.success && Array.isArray(historyJson.data)) {
-          setSessionRound(historyJson.data.length + 1);
-          return;
+      if (courseJson.success && courseJson.data) {
+        setCourseInfo({
+          courseName: courseJson.data.courseName,
+          courseCode: courseJson.data.courseCode
+        });
+        if (courseJson.data.students) {
+          const sorted = [...courseJson.data.students].sort((a, b) =>
+            (a.studentCode || '').localeCompare(b.studentCode || '', undefined, { numeric: true })
+          );
+          setCourseStudents(sorted);
         }
       }
-      setSessionRound(1);
-    } catch {
-      setSessionRound(1);
+
+      const [resDaily, resHistory] = await Promise.all([
+        fetch(`/api/report/${courseId}?date=${selectedDate}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`/api/attendance/history/${courseId}?date=${selectedDate}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).catch(() => null)
+      ]);
+
+      const dailyJson = await resDaily.json();
+      let historyJson = null;
+      if (resHistory && resHistory.ok) {
+        historyJson = await resHistory.json();
+      }
+
+      let recordedRoundsCount = 0;
+      if (historyJson?.success && Array.isArray(historyJson.data)) {
+        recordedRoundsCount = historyJson.data.length;
+      }
+
+      const hasDailyAttendance = dailyJson.success && (
+        (dailyJson.summary && (dailyJson.summary.present > 0 || dailyJson.summary.late > 0 || dailyJson.summary.leave > 0)) ||
+        (Array.isArray(dailyJson.data) && dailyJson.data.some((item: any) => item.time || item.status === 'มาเรียน' || item.status === 'มาสาย'))
+      );
+
+      if (recordedRoundsCount >= 2) {
+        setDailyRoundNumber(3);
+        setPreviousRoundAttendance(dailyJson.data || []);
+      } else if (recordedRoundsCount === 1 || hasDailyAttendance) {
+        setDailyRoundNumber(2);
+        setPreviousRoundAttendance(dailyJson.data || []);
+      } else {
+        setDailyRoundNumber(1);
+        setPreviousRoundAttendance([]);
+      }
+    } catch (err) {
+      console.error('Fetch initial data error:', err);
     }
-  }, [courseId]);
+  }, [courseId, selectedDate]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -90,8 +127,13 @@ export default function AttendancePage() {
       }
     };
     loadModels();
-    if (courseId) fetchInitialData();
-  }, [courseId, fetchInitialData]);
+  }, []);
+
+  useEffect(() => {
+    if (courseId) {
+      fetchInitialData();
+    }
+  }, [courseId, selectedDate, fetchInitialData]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -163,7 +205,7 @@ export default function AttendancePage() {
 
       setScanResults(updatedResults);
       setDetectedStudents(Array.from(uniqueDetected));
-      setStatus(uniqueDetected.size > 0 ? `ตรวจพบนักศึกษา ${uniqueDetected.size} คน กรุณายืนยันการบันทึก` : 'ไม่พบรายชื่อนักศึกษา');
+      setStatus(`ตรวจเสร็จสิ้น: พบนักศึกษา ${uniqueDetected.size} คน จากทั้งหมด ${courseStudents.length} คนในคลาส`);
 
       setTimeout(() => {
         updatedResults.forEach((res, idx) => {
@@ -180,46 +222,84 @@ export default function AttendancePage() {
     }
   };
 
-  // ดึงรหัสนักศึกษาจากชื่อที่สแกนเจอ
-  const getStudentCode = (detectedName: string) => {
-    const cleanName = detectedName.replace(/\s+/g, ' ').trim();
-    const found = courseStudents.find((s) => {
-      const fullName = `${s.firstName || ''} ${s.lastName || ''}`.replace(/\s+/g, ' ').trim();
-      return fullName === cleanName || (s.name && s.name.trim() === cleanName) || (s.firstName && cleanName.includes(s.firstName));
+  const getEvaluatedAttendance = () => {
+    const cleanedDetected = detectedStudents.map(s => s.replace(/\s+/g, ' ').trim());
+
+    return courseStudents.map(student => {
+      const fullName = `${student.firstName || ''} ${student.lastName || ''}`.replace(/\s+/g, ' ').trim();
+      const displayName = fullName || student.name || 'ไม่ระบุชื่อ';
+      
+      const isDetectedInCurrentScan = cleanedDetected.includes(fullName) ||
+        (student.name && cleanedDetected.includes(student.name.trim())) ||
+        (student.firstName && cleanedDetected.includes(student.firstName.trim()));
+
+      const prevRecord = previousRoundAttendance.find(
+        (p: any) => p.studentId === student.id || p.id === student.id || p.studentCode === student.studentCode
+      );
+
+      let finalStatus: 'มาเรียน' | 'มาสาย' | 'ขาดเรียน' = 'ขาดเรียน';
+      let autoRemark = '';
+
+      if (dailyRoundNumber === 1) {
+        if (isDetectedInCurrentScan) {
+          finalStatus = 'มาเรียน';
+          autoRemark = 'ตรวจพบในการเช็คชื่อรอบที่ 1';
+        } else {
+          finalStatus = 'ขาดเรียน';
+          autoRemark = 'ไม่พบในการเช็คชื่อรอบที่ 1';
+        }
+      } else if (dailyRoundNumber === 2) {
+        if (prevRecord?.status === 'มาเรียน') {
+          finalStatus = 'มาเรียน';
+          autoRemark = prevRecord.remark || 'ตรวจพบในการเช็คชื่อรอบที่ 1';
+        } else if (isDetectedInCurrentScan) {
+          finalStatus = 'มาสาย';
+          autoRemark = 'เช็คชื่อรอบที่ 2';
+        } else {
+          finalStatus = 'ขาดเรียน';
+          autoRemark = 'ไม่พบในการเช็คชื่อทั้งสองรอบ';
+        }
+      } else {
+        if (prevRecord?.status === 'มาเรียน') {
+          finalStatus = 'มาเรียน';
+          autoRemark = prevRecord.remark || 'ตรวจพบในการเช็คชื่อรอบที่ 1';
+        } else if (prevRecord?.status === 'มาสาย') {
+          finalStatus = 'มาสาย';
+          autoRemark = prevRecord.remark || 'เช็คชื่อรอบที่ 2';
+        } else if (isDetectedInCurrentScan) {
+          finalStatus = 'มาสาย';
+          autoRemark = 'เช็คชื่อรอบเพิ่มเติม (เก็บตก)';
+        } else {
+          finalStatus = 'ขาดเรียน';
+          autoRemark = 'ไม่พบในทุกรอบการเช็คชื่อ';
+        }
+      }
+
+      return {
+        studentId: student.id,
+        studentCode: student.studentCode,
+        displayName,
+        isDetectedInCurrentScan,
+        finalStatus,
+        remark: autoRemark
+      };
     });
-    return found ? found.studentCode : '';
   };
 
-  // 1. กดปุ่มบันทึก -> เปิด Popup ยืนยัน
-  const handleOpenConfirmModal = () => {
-    if (detectedStudents.length === 0) {
-      alert('ไม่มีรายชื่อนักศึกษาที่ต้องบันทึก');
-      return;
-    }
-    setShowConfirmModal(true);
-  };
+  const attendanceEvaluationList = getEvaluatedAttendance();
 
-  // 2. กดยืนยันใน Popup -> ส่งข้อมูลบันทึกลง Database
   const handleConfirmAndSave = async () => {
     setIsSaving(true);
     setStatus('กำลังบันทึกข้อมูลเข้าเรียน...');
     const token = getAuthToken();
 
     try {
-      // แมปสถานะนักศึกษา
-      const cleanedDetected = detectedStudents.map(s => s.replace(/\s+/g, ' ').trim());
-      const attendanceData = courseStudents.map((student: any) => {
-        const fullName = `${student.firstName || ''} ${student.lastName || ''}`.replace(/\s+/g, ' ').trim();
-        const isPresent = cleanedDetected.includes(fullName) ||
-          (student.firstName && cleanedDetected.includes(student.firstName.trim()));
+      const attendanceData = attendanceEvaluationList.map(item => ({
+        studentId: item.studentId,
+        status: item.finalStatus,
+        remark: item.remark
+      }));
 
-        return {
-          studentId: student.id,
-          status: isPresent ? 'มาเรียน' : 'ขาดเรียน'
-        };
-      });
-
-      // แปลงรูปภาพเป็น Base64
       let imagesBase64: string[] = [];
       if (selectedFiles && selectedFiles.length > 0) {
         imagesBase64 = await Promise.all(
@@ -241,10 +321,11 @@ export default function AttendancePage() {
         },
         body: JSON.stringify({
           courseId: courseId,
+          date: selectedDate,
           imageUrls: imagesBase64,
           attendanceData: attendanceData,
           detectedNames: detectedStudents,
-          round: sessionRound
+          round: dailyRoundNumber
         })
       });
 
@@ -252,9 +333,8 @@ export default function AttendancePage() {
 
       if (data.success) {
         setShowConfirmModal(false);
-        alert(`บันทึกการเช็คชื่อครั้งที่ ${sessionRound} เรียบร้อยแล้ว`);
-        setDetectedStudents([]);
-        setStatus('บันทึกข้อมูลเรียบร้อยแล้ว');
+        const roundTitle = dailyRoundNumber >= 3 ? 'รอบเพิ่มเติม (เก็บตก)' : `รอบที่ ${dailyRoundNumber}`;
+        alert(`บันทึกการเช็คชื่อวันที่ ${selectedDate} (${roundTitle}) เรียบร้อยแล้ว`);
         router.push(`/teacher/report/${courseId}`);
       } else {
         throw new Error(data.error);
@@ -281,11 +361,11 @@ export default function AttendancePage() {
       const name = matches[index];
       const isMatched = name && name !== "Unknown";
       const dx = box.x * scaleX, dy = box.y * scaleY, dw = box.width * scaleX, dh = box.height * scaleY;
-      ctx.strokeStyle = isMatched ? '#22c55e' : '#ef4444';
+      ctx.strokeStyle = isMatched ? '#10b981' : '#ef4444';
       ctx.lineWidth = 3;
       ctx.strokeRect(dx, dy, dw, dh);
       ctx.font = 'bold 12px Arial';
-      ctx.fillStyle = isMatched ? '#22c55e' : '#ef4444';
+      ctx.fillStyle = isMatched ? '#10b981' : '#ef4444';
       ctx.fillText(name || 'Unknown', dx, dy - 5);
     });
   };
@@ -293,139 +373,293 @@ export default function AttendancePage() {
   if (!isMounted) return <div className="p-20 text-center font-bold text-slate-400">กำลังเริ่มระบบ...</div>;
 
   return (
-    <div className="flex flex-col items-center min-h-screen bg-slate-50 p-6 md:p-10 font-sans text-slate-900">
-      <div className="mb-8 text-center w-full max-w-2xl">
-        <div className="flex justify-between items-center mb-6">
-          <Link href="/teacher/dashboard" className="text-blue-600 font-bold inline-flex items-center gap-2 hover:translate-x-[-4px] transition-all text-sm">
-            ← กลับหน้า Dashboard
+    <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
+      
+      {/* 1. Header ด้านบน */}
+      <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative print:hidden">
+        <div className="absolute top-6 left-6">
+          <Link
+            href="/teacher/dashboard"
+            className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-2 text-xs uppercase tracking-wider transition-all"
+          >
+            ← Back to Dashboard
           </Link>
         </div>
-        <h1 className="text-4xl font-black text-slate-800 tracking-tight">ตรวจสอบรายชื่อเข้าชั้นเรียน</h1>
-        <p className="text-slate-400 font-bold text-xs mt-2 uppercase tracking-widest">COURSE ID: {courseId}</p>
-      </div>
+        <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
+          ระบบเช็คชื่อนักเรียน
+        </h1>
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          วิชา: <span className="font-bold text-white">{courseInfo?.courseName || 'กำลังโหลด...'}</span> {courseInfo?.courseCode ? `(${courseInfo.courseCode})` : ''}
+        </p>
+      </header>
 
-      <div className="flex flex-col gap-5 bg-white p-10 rounded-[2.5rem] shadow-xl border border-slate-100 w-full max-w-2xl mb-8">
-        <div className="space-y-2">
-          <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">อัปโหลดรูปภาพกลุ่ม:</label>
-          <input
-            type="file" multiple accept="image/*"
-            onChange={handleFileChange}
-            className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-6 file:rounded-full file:border-0 file:text-xs file:font-black file:bg-blue-600 file:text-white hover:file:bg-blue-700 transition-all cursor-pointer"
-          />
+      {/* 2. Navigation Tabs Bar (3 เมนูหลัก มาตรฐานเดียวกับหน้ารายงาน) */}
+      <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto print:hidden">
+        <div className="max-w-5xl mx-auto flex items-center justify-center gap-1 min-w-max">
+          <button
+            type="button"
+            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm bg-white text-slate-800 shadow rounded-t-xl"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            เช็คชื่อสแกนใบหน้า
+          </button>
+
+          <Link
+            href={`/teacher/report/${courseId}`}
+            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm text-emerald-50 hover:bg-emerald-700/50 hover:text-white rounded-t-xl transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            รายงานการเข้าเรียน
+          </Link>
+
+          <Link
+            href={`/teacher/course/${courseId}/students`}
+            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm text-emerald-50 hover:bg-emerald-700/50 hover:text-white rounded-t-xl transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+            </svg>
+            จัดการรายชื่อนักศึกษา
+          </Link>
         </div>
+      </nav>
 
-        {!detectedStudents.length && (
+      {/* 3. Main Content */}
+      <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-8 flex flex-col items-center">
+        
+        {/* การ์ดเลือกวันที่ และอัปโหลดรูปภาพ */}
+        <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 w-full mb-6">
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5 pb-5 border-b border-slate-100">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                เลือกวันที่
+              </label>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                สถานะการเช็คชื่อประจำวัน
+              </label>
+              <div className={`px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm border flex items-center justify-between ${
+                dailyRoundNumber === 1 
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                  : dailyRoundNumber === 2
+                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                  : 'bg-indigo-50 text-indigo-800 border-indigo-200'
+              }`}>
+                <span>
+                  {dailyRoundNumber === 1 && 'การเช็คชื่อรอบที่ 1'}
+                  {dailyRoundNumber === 2 && 'การเช็คชื่อรอบที่ 2'}
+                  {dailyRoundNumber >= 3 && 'การเช็คชื่อรอบเพิ่มเติม'}
+                </span>
+                <span className="text-[11px] font-medium opacity-85">
+                  {dailyRoundNumber === 1 && '(เริ่มคาบเรียน)'}
+                  {dailyRoundNumber === 2 && '(ตรวจซ้ำ / บันทึกสาย)'}
+                  {dailyRoundNumber >= 3 && '(เก็บตก)'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3 mb-5">
+            <label className="block text-xs font-bold text-slate-700">อัปโหลดรูปภาพกลุ่ม:</label>
+            <input
+              type="file" multiple accept="image/*"
+              onChange={handleFileChange}
+              className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 transition-all cursor-pointer border border-slate-200 rounded-xl p-1.5"
+            />
+          </div>
+
           <button
             onClick={handleScanAttendance}
             disabled={isLoading || !selectedFiles}
-            className="w-full bg-slate-900 hover:bg-black text-white py-5 rounded-2xl font-black text-lg shadow-xl shadow-slate-200 disabled:bg-slate-200 transition-all active:scale-[0.98] cursor-pointer"
+            className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-3 rounded-xl font-bold text-sm shadow-sm disabled:bg-slate-200 disabled:text-slate-400 transition-all cursor-pointer mb-3"
           >
             {isLoading ? 'กำลังประมวลผลใบหน้า...' : 'เริ่มสแกนใบหน้า'}
           </button>
+
+          <div className={`text-center py-2.5 px-4 rounded-xl font-bold text-xs border ${
+            status.includes('ข้อผิดพลาด') 
+              ? 'bg-red-50 text-red-600 border-red-100' 
+              : 'bg-emerald-50/60 text-emerald-700 border-emerald-100'
+          }`}>
+            {status}
+          </div>
+        </div>
+
+        {/* ตารางแสดงรายชื่อนักศึกษาทั้งหมดในคลาส พร้อมผลการตรวจสอบ */}
+        {scanResults.length > 0 && (
+          <div className="w-full bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80 mb-6 animate-in fade-in duration-300">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-5 pb-3 border-b border-slate-100">
+              <div>
+                <h2 className="text-lg font-black text-slate-800">
+                  รายชื่อนักศึกษาในคลาส ({attendanceEvaluationList.length} คน)
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  ตรวจพบในรูป {detectedStudents.length} คน • ไม่พบในรูป {attendanceEvaluationList.length - detectedStudents.length} คน
+                </p>
+              </div>
+
+              <span className={`text-xs font-bold px-3 py-1 rounded-lg border ${
+                dailyRoundNumber === 1 
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                  : dailyRoundNumber === 2
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+              }`}>
+                {dailyRoundNumber >= 3 ? 'รอบเพิ่มเติม (เก็บตก)' : `รอบที่ ${dailyRoundNumber}`} ประจำวันที่ {selectedDate}
+              </span>
+            </div>
+
+            {/* แถวแสดงรายชื่อนักศึกษาทุกคน */}
+            <div className="flex flex-col gap-2.5 mb-6">
+              {attendanceEvaluationList.map((item, i) => {
+                const isFound = item.isDetectedInCurrentScan;
+                const statusColor = 
+                  item.finalStatus === 'มาเรียน' ? 'bg-emerald-50/60 border-emerald-200' :
+                  item.finalStatus === 'มาสาย' ? 'bg-amber-50/60 border-amber-200' :
+                  'bg-red-50/60 border-red-200';
+
+                return (
+                  <div
+                    key={item.studentId}
+                    className={`border rounded-xl px-4 py-3 flex items-center justify-between transition-all ${statusColor}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className={`w-7 h-7 rounded-lg font-bold text-xs flex items-center justify-center border ${
+                        isFound ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'
+                      }`}>
+                        {i + 1}
+                      </span>
+                      <div>
+                        <span className="font-bold text-slate-800 text-xs md:text-sm">
+                          {item.displayName}
+                        </span>
+                        {!isFound && (
+                          <span className="ml-2 text-[10px] text-red-500 font-medium">
+                            (ไม่พบในรูปสแกน)
+                          </span>
+                        )}
+                        {item.remark && (
+                          <div className="text-[11px] text-slate-400 mt-0.5">
+                            หมายเหตุ: {item.remark}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono font-bold text-xs text-slate-600">
+                        {item.studentCode}
+                      </span>
+
+                      <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${
+                        item.finalStatus === 'มาเรียน'
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : item.finalStatus === 'มาสาย'
+                          ? 'bg-amber-100 text-amber-800 border-amber-300'
+                          : 'bg-red-100 text-red-700 border-red-300'
+                      }`}>
+                        {item.finalStatus}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => setShowConfirmModal(true)}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-3.5 rounded-xl font-bold text-sm shadow-sm transition-all cursor-pointer"
+            >
+              ยืนยันการบันทึกเข้าเรียน ({dailyRoundNumber >= 3 ? 'รอบเพิ่มเติม' : `รอบที่ ${dailyRoundNumber}`})
+            </button>
+          </div>
         )}
 
-        <div className={`text-center py-3 px-4 rounded-xl font-bold text-sm ${status.includes('ข้อผิดพลาด') ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
-          {status}
-        </div>
-      </div>
-
-      {/* กล่องแสดงรายชื่อแบบแถวตอนเรียงเดี่ยวแนวตั้ง */}
-      {detectedStudents.length > 0 && (
-        <div className="w-full max-w-2xl bg-white p-8 rounded-[2.5rem] shadow-xl border-t-8 border-green-500 mb-8 animate-in fade-in duration-300">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-black text-slate-800">ตรวจพบนักศึกษา ({detectedStudents.length} คน)</h2>
-            <button onClick={() => setDetectedStudents([])} className="text-xs font-bold text-red-400 hover:text-red-600 cursor-pointer">ยกเลิกทั้งหมด</button>
-          </div>
-
-          {/* แถวรายการนักศึกษาแบบเรียบง่ายตามตัวอย่าง */}
-          <div className="flex flex-col gap-3 mb-8">
-            {detectedStudents.map((name, i) => {
-              const studentCode = getStudentCode(name);
-
-              return (
-                <div
-                  key={i}
-                  className="bg-white border border-slate-100 rounded-2xl px-5 py-3.5 flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-4">
-
-                    <span className="w-8 h-8 rounded-xl bg-white text-blue-950 font-black text-xs flex items-center justify-center">
-                      {i + 1}
-                    </span>
-                    <span className="font-bold text-slate-800 text-sm">
-                      {name}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-4">
-
-                    {studentCode && (
-                      <span className="bg-white text-blue-600 font-mono font-bold text-xs px-4  ">
-                        {studentCode}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setDetectedStudents(prev => prev.filter(n => n !== name))}
-                      className="text-slate-300 hover:text-red-500 font-bold text-lg leading-none cursor-pointer transition-colors"
-                      title="ลบรายการนี้"
-                    >
-                      &times;
-                    </button>
-                  </div>
+        {/* ส่วนแสดงภาพวิเคราะห์ใบหน้า */}
+        {scanResults.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+            {scanResults.map((res, idx) => (
+              <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80">
+                <p className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">
+                  รูปภาพที่ #{idx + 1}
+                </p>
+                <div className="relative rounded-xl overflow-hidden bg-slate-100 border border-slate-100">
+                  <img
+                    ref={(el) => { imageRefs.current[idx] = el; }}
+                    src={res.url}
+                    className="block w-full h-auto"
+                    alt="Scan"
+                  />
+                  <canvas ref={(el) => { canvasRefs.current[idx] = el; }} className="absolute top-0 left-0 pointer-events-none" />
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
+        )}
+      </main>
 
-          <button
-            onClick={handleOpenConfirmModal}
-            className="w-full bg-green-500 hover:bg-green-600 text-white py-5 rounded-2xl font-black text-xl shadow-lg shadow-green-100 transition-all active:scale-[0.98] cursor-pointer"
-          >
-            ยืนยันการเข้าเรียน
-          </button>
-        </div>
-      )}
+      {/* 4. Footer ด้านล่าง */}
+      <footer className="bg-white text-[#0f766e] py-4 px-4 text-center text-xs font-medium border-t border-slate-100 mt-auto">
+        ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+      </footer>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full max-w-7xl">
-        {scanResults.map((res, idx) => (
-          <div key={idx} className="bg-white p-6 rounded-[2rem] shadow-lg border border-slate-100">
-            <p className="text-[10px] font-black text-slate-400 mb-4 uppercase tracking-tighter">รูปที่ #{idx + 1}</p>
-            <div className="relative rounded-2xl overflow-hidden bg-slate-100">
-              <img
-                ref={(el) => { imageRefs.current[idx] = el; }}
-                src={res.url}
-                className="block w-full h-auto"
-                alt="Scan"
-              />
-              <canvas ref={(el) => { canvasRefs.current[idx] = el; }} className="absolute top-0 left-0 pointer-events-none" />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Modal Popup: ยืนยันการเช็คชื่อตามรอบ */}
+      {/* Modal Popup: ยืนยันการเช็คชื่อ */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 text-center">
-            <div className="w-14 h-14 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center mx-auto mb-4 font-black text-2xl">
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200 text-center">
+            <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
               ✓
             </div>
 
-            <h3 className="text-2xl font-black text-slate-800">ยืนยันการเช็คชื่อ</h3>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              คุณต้องการยืนยันการเช็คชื่อ <br />
-              <span className="font-black text-green-600 text-base">ครั้งที่ {sessionRound}</span> สำหรับรายวิชานี้ใช่หรือไม่?
+            <h3 className="text-xl font-black text-slate-800">ยืนยันการบันทึกเช็คชื่อ</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              บันทึกผลการเข้าเรียนประจำวันที่ <span className="font-bold text-slate-700">{selectedDate}</span><br />
+              <span className={`font-black text-sm ${
+                dailyRoundNumber === 1 
+                  ? 'text-emerald-600' 
+                  : dailyRoundNumber === 2 
+                  ? 'text-amber-600' 
+                  : 'text-indigo-600'
+              }`}>
+                {dailyRoundNumber >= 3 ? 'การเช็คชื่อรอบเพิ่มเติม (เก็บตก)' : `การเช็คชื่อรอบที่ ${dailyRoundNumber}`}
+              </span>
             </p>
 
-            <div className="bg-slate-50 rounded-2xl p-4 my-6 text-xs text-slate-600 text-left space-y-2 border border-slate-100">
+            <div className="bg-slate-50 rounded-xl p-4 my-5 text-xs text-slate-600 text-left space-y-2 border border-slate-200/60">
               <div className="flex justify-between">
-                <span className="text-slate-400 font-bold">รอบการเช็คชื่อ:</span>
-                <span className="font-black text-slate-800">ครั้งที่ {sessionRound}</span>
+                <span className="text-slate-400 font-bold">นักศึกษาทั้งหมด:</span>
+                <span className="font-bold text-slate-800">{attendanceEvaluationList.length} คน</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400 font-bold">จำนวนนักศึกษาที่สแกนเจอ:</span>
-                <span className="font-black text-green-600 text-sm">{detectedStudents.length} คน</span>
+                <span className="text-slate-400 font-bold">มาเรียน:</span>
+                <span className="font-bold text-emerald-700">
+                  {attendanceEvaluationList.filter(s => s.finalStatus === 'มาเรียน').length} คน
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-bold">มาสาย:</span>
+                <span className="font-bold text-amber-700">
+                  {attendanceEvaluationList.filter(s => s.finalStatus === 'มาสาย').length} คน
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-bold">ขาดเรียน:</span>
+                <span className="font-bold text-red-700">
+                  {attendanceEvaluationList.filter(s => s.finalStatus === 'ขาดเรียน').length} คน
+                </span>
               </div>
             </div>
 
@@ -434,7 +668,7 @@ export default function AttendancePage() {
                 type="button"
                 disabled={isSaving}
                 onClick={() => setShowConfirmModal(false)}
-                className="flex-1 py-4 font-black text-slate-400 hover:text-slate-600 transition-all text-sm rounded-2xl bg-slate-50 hover:bg-slate-100 cursor-pointer"
+                className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 transition-all text-xs rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer"
               >
                 ยกเลิก
               </button>
@@ -442,9 +676,9 @@ export default function AttendancePage() {
                 type="button"
                 disabled={isSaving}
                 onClick={handleConfirmAndSave}
-                className="flex-[2] bg-green-500 hover:bg-green-600 text-white py-4 rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg shadow-green-100 transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
+                className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
               >
-                {isSaving ? 'กำลังบันทึก...' : `ยืนยันรอบที่ ${sessionRound}`}
+                {isSaving ? 'กำลังบันทึก...' : `ยืนยัน${dailyRoundNumber >= 3 ? 'รอบเพิ่มเติม' : `รอบที่ ${dailyRoundNumber}`}`}
               </button>
             </div>
           </div>

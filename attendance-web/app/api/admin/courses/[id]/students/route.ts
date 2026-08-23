@@ -1,18 +1,26 @@
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
-//  ดึงข้อมูลรายวิชา, รายชื่อนักศึกษาในวิชา และรายชื่อนักศึกษาทั้งหมดในระบบ
-export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+// 1. [GET] ดึงข้อมูลรายวิชา, รายชื่อนักศึกษาในวิชา และรายชื่อนักศึกษาทั้งหมด
+export async function GET(
+  req: Request, 
+  { params }: { params: Promise<{ id: string }> | { id: string } }
+) {
   try {
-    // แกะห่อ params ด้วย await ตามกฎ Next.js เวอร์ชันใหม่
-    const { id: courseId } = await params;
+    const resolvedParams = await Promise.resolve(params);
+    const courseId = resolvedParams.id;
 
+    if (!courseId) {
+      return NextResponse.json({ success: false, error: "ไม่พบ Course ID" }, { status: 400 });
+    }
+
+    // ดึงข้อมูล Course พร้อม Teacher และ Students (ไม่ระบุ select เพื่อป้องกัน Error ฟิลด์ไม่ตรงกับ Schema)
     const courseInfo = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
-        teacher: { select: { name: true } },
+        teacher: true,
         students: {
-          select: { id: true, studentCode: true, name: true }
+          orderBy: { studentCode: 'asc' }
         }
       }
     });
@@ -21,51 +29,68 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ success: false, error: "ไม่พบรายวิชานี้ในระบบ" }, { status: 404 });
     }
 
+    // ดึงรายชื่อนักศึกษาทั้งหมดในระบบมาเตรียมไว้สำหรับ Dropdown เพิ่มเข้าชั้นเรียน
     const allStudents = await prisma.student.findMany({
-      select: { id: true, studentCode: true, name: true },
       orderBy: { studentCode: 'asc' }
     });
 
     return NextResponse.json({
       success: true,
-      data: { course: courseInfo, allStudents }
+      data: { 
+        course: courseInfo, 
+        allStudents: allStudents || [] 
+      }
     });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error("GET Admin Course Students Error:", error);
+    return NextResponse.json({ success: false, error: error.message || "เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์" }, { status: 500 });
   }
 }
 
-//  แอดมินเพิ่มนักศึกษาเข้าไปในรายวิชานี้ 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+// 2. [POST] แอดมินเพิ่มนักศึกษาเข้าไปในรายวิชานี้
+export async function POST(
+  req: Request, 
+  { params }: { params: Promise<{ id: string }> | { id: string } }
+) {
   try {
-    //  แกะห่อ params ด้วย await
-    const { id: courseId } = await params;
-    const { studentId } = await req.json();
+    const resolvedParams = await Promise.resolve(params);
+    const courseId = resolvedParams.id;
+    const body = await req.json();
+    const studentId = body?.studentId;
 
     if (!studentId) {
       return NextResponse.json({ success: false, error: "กรุณาระบุนักศึกษา" }, { status: 400 });
+    }
+
+    const parsedStudentId = parseInt(String(studentId), 10);
+    if (isNaN(parsedStudentId)) {
+      return NextResponse.json({ success: false, error: "รหัสไอดีนักศึกษาไม่ถูกต้อง" }, { status: 400 });
     }
 
     await prisma.course.update({
       where: { id: courseId },
       data: {
         students: {
-          connect: { id: parseInt(studentId) }
+          connect: { id: parsedStudentId }
         }
       }
     });
 
     return NextResponse.json({ success: true, message: "เพิ่มนักศึกษาเข้าชั้นเรียนสำเร็จ" });
   } catch (error: any) {
+    console.error("POST Add Student Error:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
-//  [DELETE] แอดมินคัดนักศึกษาออกจากรายวิชานี้ (Disconnect Relation)
-export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+// 3. [DELETE] แอดมินคัดนักศึกษาออกจากรายวิชานี้
+export async function DELETE(
+  req: Request, 
+  { params }: { params: Promise<{ id: string }> | { id: string } }
+) {
   try {
-    //  แกะห่อ params ด้วย await
-    const { id: courseId } = await params;
+    const resolvedParams = await Promise.resolve(params);
+    const courseId = resolvedParams.id;
     const { searchParams } = new URL(req.url);
     const studentId = searchParams.get('studentId');
 
@@ -73,47 +98,56 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       return NextResponse.json({ success: false, error: "กรุณาระบุนักศึกษาที่จะลบ" }, { status: 400 });
     }
 
+    const parsedStudentId = parseInt(studentId, 10);
+    if (isNaN(parsedStudentId)) {
+      return NextResponse.json({ success: false, error: "รหัสไอดีนักศึกษาไม่ถูกต้อง" }, { status: 400 });
+    }
+
     await prisma.course.update({
       where: { id: courseId },
       data: {
         students: {
-          disconnect: { id: parseInt(studentId) }
+          disconnect: { id: parsedStudentId }
         }
       }
     });
 
     return NextResponse.json({ success: true, message: "คัดนักศึกษาออกจากรายวิชาสำเร็จ" });
   } catch (error: any) {
+    console.error("DELETE Student Error:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
-//   [PUT] แอดมินแก้ไขรหัสวิชาและชื่อรายวิชา (ระบบแยกส่วนจากหน้าอาจารย์)
-export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
+// 4. [PUT] แอดมินแก้ไขรหัสวิชาและชื่อรายวิชา
+export async function PUT(
+  req: Request, 
+  { params }: { params: Promise<{ id: string }> | { id: string } }
+) {
   try {
-    //  แกะห่อ params ด้วย await ตามกฎ Next.js เวอร์ชันใหม่เช่นกัน
-    const { id: courseId } = await params;
+    const resolvedParams = await Promise.resolve(params);
+    const courseId = resolvedParams.id;
     const { courseCode, courseName } = await req.json();
 
-    if (!courseCode || !courseName) {
-      return NextResponse.json({ success: false, error: "กรุณากรอกข้อมูลให้ครบถ้วนครับบอส" }, { status: 400 });
+    if (!courseCode?.trim() || !courseName?.trim()) {
+      return NextResponse.json({ success: false, error: "กรุณากรอกข้อมูลให้ครบถ้วน" }, { status: 400 });
     }
 
-    // ทำการอัปเดตข้อมูลแก้ไขลง Database ผ่าน Prisma
     const updatedCourse = await prisma.course.update({
       where: { id: courseId },
       data: {
-        courseCode: courseCode,
-        courseName: courseName,
+        courseCode: courseCode.trim(),
+        courseName: courseName.trim(),
       },
     });
 
     return NextResponse.json({ 
       success: true, 
-      message: "อัปเดตข้อมูลรายวิชาสำเร็จแล้วครับบอส", 
+      message: "อัปเดตข้อมูลรายวิชาสำเร็จเรียบร้อย", 
       data: updatedCourse 
     });
   } catch (error: any) {
+    console.error("PUT Course Details Error:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

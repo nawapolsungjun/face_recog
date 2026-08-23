@@ -16,33 +16,47 @@ export async function POST(request: Request) {
     }
 
     const numericStudentId = Number(studentId);
+    const now = new Date();
 
-    // 1. กำหนดวันที่และเวลาเป้าหมาย
+    // 1. กำหนดเวลาที่บันทึกของคาบนั้น (targetDate)
     const targetDate = new Date(date);
     if (time) {
       const [hours, minutes] = time.split(':').map(Number);
       targetDate.setHours(hours || 0, minutes || 0, 0, 0);
     } else {
-      const now = new Date();
       targetDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), 0);
     }
 
-    // 2. กำหนดช่วงเวลาของวันนั้น (00:00 - 23:59:59)
+    // 2. จัดรูปแบบเวลาที่อาจารย์กดแก้ไขจริง (เช่น 07:19 น.)
+    const editTimeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const baseRemark = remark?.trim() || 'แก้ไขโดยอาจารย์';
+    const finalRemark = `${baseRemark} (แก้ไขเมื่อ ${editTimeStr} น.)`;
+
+    // 3. กำหนดช่วงเวลาของวันนั้น
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
 
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
 
-    // 3. ค้นหารายการเช็คชื่อล่าสุดของนักศึกษาในวันนั้น
     const existingRecord = await prisma.attendance.findFirst({
       where: {
         studentId: numericStudentId,
         courseId: String(courseId),
-        createdAt: {
-          gte: startOfDay,
-          lte: endOfDay,
-        },
+        OR: [
+          {
+            date: {
+              gte: startOfDay,
+              lte: endOfDay,
+            }
+          },
+          {
+            createdAt: {
+              gte: startOfDay,
+              lte: endOfDay,
+            }
+          }
+        ]
       },
       orderBy: {
         createdAt: 'desc',
@@ -52,28 +66,28 @@ export async function POST(request: Request) {
     let result;
 
     if (existingRecord) {
-      // มีข้อมูลเดิม: อัปเดตสถานะ เวลา และบันทึก Audit trail
       result = await prisma.attendance.update({
         where: { id: existingRecord.id },
         data: {
           status: status,
+          date: targetDate,
           createdAt: targetDate,
           isManual: true,
-          remark: remark || 'แก้ไขโดยอาจารย์',
-          updatedAt: new Date(),
+          remark: finalRemark,
+          updatedAt: now,
         },
       });
     } else {
-      // ยังไม่มีข้อมูล: สร้างรายการเช็คชื่อใหม่
       result = await prisma.attendance.create({
         data: {
           studentId: numericStudentId,
           courseId: String(courseId),
           status: status,
+          date: targetDate,
           createdAt: targetDate,
           isManual: true,
-          remark: remark || 'แก้ไขโดยอาจารย์',
-          updatedAt: new Date(),
+          remark: finalRemark,
+          updatedAt: now,
         },
       });
     }

@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { courseId, imageUrls, imageUrl, attendanceData, detectedNames, note } = body;
+    const { courseId, date, imageUrls, imageUrl, attendanceData, detectedNames, note, round } = body;
 
     // 1. ตรวจสอบความถูกต้องของ courseId
     if (!courseId) {
@@ -18,18 +18,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. ดึงข้อมูลนักศึกษาทั้งหมดในรายวิชานี้
+    // 2. ดึงข้อมูลนักศึกษาทั้งหมดในรายวิชานี้ (ใช้ students: true ป้องกัน Error ฟิลด์ไม่ตรง)
     const course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
-        students: {
-          select: {
-            id: true,
-            studentCode: true,
-            firstName: true,
-            lastName: true,
-          }
-        }
+        students: true
       }
     });
 
@@ -71,27 +64,19 @@ export async function POST(request: Request) {
 
     const savedImagePath = savedPaths.length > 0 ? savedPaths.join(',') : null;
 
-    // 4. นับจำนวน Session เดิมเพื่อตั้งลำดับรอบ
-    const sessionCount = await prisma.attendanceSession.count({
-      where: { courseId: courseId }
-    });
-    const nextRoundNumber = sessionCount + 1;
+    // 4. กำหนดวันที่และรอบ
+    const sessionDate = date ? new Date(date) : new Date();
+    const currentRoundNumber = Number(round) || 1;
 
-    // 5. เตรียม Set รายชื่อและ ID ของคนที่ตรวจจับได้ (Clean ช่องว่างทั้งหมด)
-    const detectedCleanSet = new Set<string>();
-    if (Array.isArray(detectedNames)) {
-      detectedNames.forEach((name: string) => {
-        if (name && name !== 'Unknown') {
-          detectedCleanSet.add(name.replace(/\s+/g, ' ').trim());
-        }
-      });
-    }
-
-    const presentStudentIdSet = new Set<number>();
+    // 5. สร้าง Map สถานะและ Remark ที่ส่งมาจาก Frontend
+    const statusMap = new Map<number, { status: string; remark?: string }>();
     if (Array.isArray(attendanceData)) {
       attendanceData.forEach((item: any) => {
-        if (item.status === 'มาเรียน') {
-          presentStudentIdSet.add(Number(item.studentId));
+        if (item.studentId) {
+          statusMap.set(Number(item.studentId), {
+            status: item.status || 'ขาดเรียน',
+            remark: item.remark || (currentRoundNumber >= 2 && item.status === 'มาสาย' ? 'เช็คชื่อรอบที่ 2' : undefined)
+          });
         }
       });
     }
@@ -102,46 +87,45 @@ export async function POST(request: Request) {
       const newSession = await tx.attendanceSession.create({
         data: {
           courseId: courseId,
-          roundNumber: nextRoundNumber,
+          roundNumber: currentRoundNumber,
           imageUrl: savedImagePath,
-          note: note || null,
+          note: note || (currentRoundNumber >= 2 ? `เช็คชื่อรอบที่ ${currentRoundNumber}` : null),
+          createdAt: sessionDate,
         }
       });
 
-      // จัดเตรียมรายการบันทึกของนักศึกษาทุกคนในวิชา
+      // จัดเตรียมรายการบันทึกของนักศึกษาทุกคน
       const attendanceRecords = course.students.map((student: any) => {
-        const studentFullName = `${student.firstName || ''} ${student.lastName || ''}`.replace(/\s+/g, ' ').trim();
-        
-        // ตรวจสอบว่ามาเรียนหรือไม่ (เช็คจาก ID, ชื่อนามสกุลเต็ม หรือชื่อต้น)
-        const isPresent =
-          presentStudentIdSet.has(student.id) ||
-          detectedCleanSet.has(studentFullName) ||
-          (student.firstName && detectedCleanSet.has(student.firstName.trim()));
+        const evaluated = statusMap.get(student.id);
+        const finalStatus = evaluated ? evaluated.status : 'ขาดเรียน';
+        const finalRemark = evaluated?.remark || (currentRoundNumber >= 2 && finalStatus === 'มาสาย' ? 'เช็คชื่อรอบที่ 2' : null);
 
         return {
           studentId: student.id,
           courseId: courseId,
-          status: isPresent ? 'มาเรียน' : 'ขาดเรียน',
+          status: finalStatus,
+          remark: finalRemark,
           sessionId: newSession.id,
-          createdAt: newSession.createdAt,
-          updatedAt: newSession.createdAt,
+          date: sessionDate,
+          createdAt: sessionDate,
+          updatedAt: sessionDate,
         };
       });
 
-      // บันทึกข้อมูล Attendance ของทุกคน
+      // บันทึก Attendance ของทุกคนลงฐานข้อมูล
       await tx.attendance.createMany({
         data: attendanceRecords,
       });
 
       return {
         sessionId: newSession.id,
-        roundNumber: nextRoundNumber,
+        roundNumber: currentRoundNumber,
       };
     });
 
     return NextResponse.json({
       success: true,
-      message: `บันทึกการเช็คชื่อ ครั้งที่ ${result.roundNumber} เรียบร้อยแล้ว`,
+      message: `บันทึกการเช็คชื่อรอบที่ ${result.roundNumber} เรียบร้อยแล้ว`,
       data: result,
     });
 

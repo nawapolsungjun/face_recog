@@ -66,29 +66,44 @@ export default function RegisterUserPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6 md:p-10 font-sans text-slate-900">
-      <div className="max-w-2xl mx-auto">
-        <Link
-          href="/admin/dashboard"
-          className="text-blue-600 font-bold text-sm uppercase tracking-widest flex items-center gap-2 mb-6 hover:translate-x-[-4px] transition-all"
-        >
-          ← กลับไปหน้า Dashboard
-        </Link>
+    <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
 
-        <div className="bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-100">
-          <div className="mb-8 text-center md:text-left">
-            <h1 className="text-3xl font-black text-slate-800 tracking-tight">ลงทะเบียนผู้ใช้ใหม่</h1>
-            <p className="text-slate-400 font-medium mt-1">สร้างบัญชีสำหรับอาจารย์หรือนักศึกษา (Admin Only)</p>
+      {/* 1. Header ด้านบนตาม Style Canva (หัวข้อตรงกลาง 100%) */}
+      <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
+        <div className="absolute top-6 left-6">
+          <Link
+            href="/admin/dashboard"
+            className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-2 text-xs uppercase tracking-wider transition-all"
+          >
+            ← Back to Dashboard
+          </Link>
+        </div>
+        <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
+          ระบบเช็คชื่อนักเรียน
+        </h1>
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน สาขาวิชานวัตกรรมระบบสารสนเทศ
+        </p>
+      </header>
+
+      {/* 3. Main Content Card */}
+      <main className="flex-1 max-w-2xl w-full mx-auto p-4 md:py-8 flex flex-col justify-center">
+        <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80">
+
+          <div className="text-center mb-6 pb-4 border-b border-slate-100">
+            <h2 className="text-2xl font-black text-slate-800 tracking-tight">ลงทะเบียนผู้ใช้ใหม่</h2>
+            <p className="text-slate-400 font-medium mt-1 text-xs">สร้างบัญชีสำหรับอาจารย์หรือนักศึกษา (Admin Only)</p>
           </div>
 
-          <form onSubmit={handleOpenConfirm} className="space-y-6">
+          <form onSubmit={handleOpenConfirm} className="space-y-4">
+
             {/* 1. บทบาท */}
             <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+              <label className="block text-xs font-bold text-slate-700 mb-1">
                 บทบาทผู้ใช้งาน
               </label>
               <select
-                className="w-full mt-1 p-4 bg-slate-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-800 cursor-pointer"
+                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value as 'STUDENT' | 'TEACHER' })}
               >
@@ -98,30 +113,30 @@ export default function RegisterUserPage() {
             </div>
 
             {/* 2. ชื่อจริง และ นามสกุล */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                <label className="block text-xs font-bold text-slate-700 mb-1">
                   ชื่อจริง
                 </label>
                 <input
                   type="text"
                   required
                   placeholder="ระบุชื่อจริง"
-                  className="w-full mt-1 p-4 bg-slate-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-800"
+                  className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                   value={formData.firstName}
                   onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                <label className="block text-xs font-bold text-slate-700 mb-1">
                   นามสกุล
                 </label>
                 <input
                   type="text"
                   required
                   placeholder="ระบุนามสกุล"
-                  className="w-full mt-1 p-4 bg-slate-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-800"
+                  className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                   value={formData.lastName}
                   onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                 />
@@ -129,17 +144,17 @@ export default function RegisterUserPage() {
             </div>
 
             {/* 3. รหัสนักศึกษา (แสดงเฉพาะนักศึกษา) และ อีเมล */}
-            <div className={`grid ${formData.role === 'STUDENT' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'} gap-6`}>
+            <div className={`grid ${formData.role === 'STUDENT' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'} gap-4`}>
               {formData.role === 'STUDENT' && (
                 <div className="animate-in slide-in-from-top-2 duration-300">
-                  <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest ml-1">
+                  <label className="block text-xs font-bold text-emerald-700 mb-1">
                     รหัสนักศึกษา (Username)
                   </label>
                   <input
                     type="text"
                     required
                     placeholder="เช่น 67605050001-3"
-                    className="w-full mt-1 p-4 bg-blue-50/50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 font-bold text-blue-700 font-mono"
+                    className="w-full px-4 py-2.5 bg-emerald-50/50 border border-emerald-200 rounded-xl text-xs md:text-sm font-bold text-emerald-800 font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                     value={formData.studentCode}
                     onChange={(e) => setFormData({ ...formData, studentCode: e.target.value })}
                   />
@@ -147,14 +162,14 @@ export default function RegisterUserPage() {
               )}
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                <label className="block text-xs font-bold text-slate-700 mb-1">
                   อีเมลระบบ
                 </label>
                 <input
                   type="email"
                   required
                   placeholder="name@example.com"
-                  className="w-full mt-1 p-4 bg-slate-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-800"
+                  className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 />
@@ -163,67 +178,74 @@ export default function RegisterUserPage() {
 
             {/* 4. รหัสผ่าน */}
             <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+              <label className="block text-xs font-bold text-slate-700 mb-1">
                 รหัสผ่านเริ่มต้น
               </label>
               <input
                 type="password"
                 required
                 placeholder="••••••••"
-                className="w-full mt-1 p-4 bg-slate-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-800"
+                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               />
-              <p className="text-[10px] text-slate-400 font-bold mt-2 ml-1 italic">
+              <p className="text-[11px] text-slate-400 font-medium mt-1 italic">
                 * รหัสนี้ผู้ใช้สามารถไปเปลี่ยนเองได้ภายหลังในหน้าโปรไฟล์
               </p>
             </div>
 
             {/* ปุ่มเปิด Modal ยืนยัน */}
-            <button
-              type="submit"
-              className="w-full bg-slate-900 text-white p-5 rounded-[2rem] font-black text-lg mt-4 hover:bg-black transition-all shadow-xl shadow-slate-200 active:scale-95 cursor-pointer"
-            >
-              ยืนยันการลงทะเบียน
-            </button>
+            <div className="pt-2">
+              <button
+                type="submit"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-3.5 rounded-xl font-bold text-sm shadow-sm transition-all cursor-pointer"
+              >
+                ยืนยันการลงทะเบียน
+              </button>
+            </div>
           </form>
         </div>
-      </div>
+      </main>
+
+      {/* 4. Footer ด้านล่าง */}
+      <footer className="bg-white text-[#0f766e] py-4 px-4 text-center text-xs font-medium border-t border-slate-100 mt-auto">
+        ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+      </footer>
 
       {/* Modal Popup ตรวจสอบและยืนยันข้อมูล */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
-            <div className="text-center mb-6">
-              <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 font-black text-2xl">
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200">
+            <div className="text-center mb-5">
+              <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-3 font-black text-xl">
                 ✓
               </div>
-              <h3 className="text-2xl font-black text-slate-800">ตรวจสอบข้อมูลผู้ใช้</h3>
+              <h3 className="text-xl font-black text-slate-800">ตรวจสอบข้อมูลผู้ใช้</h3>
               <p className="text-xs text-slate-400 font-medium mt-1">กรุณาตรวจสอบความถูกต้องก่อนบันทึกลงระบบ</p>
             </div>
 
-            <div className="bg-slate-50 rounded-2xl p-5 space-y-3 mb-6 text-sm">
+            <div className="bg-slate-50 rounded-xl p-4 space-y-2.5 mb-6 text-xs border border-slate-200/60">
               <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
-                <span className="text-xs font-bold text-slate-400">บทบาท:</span>
-                <span className="font-black text-blue-600 uppercase bg-blue-100/60 px-2.5 py-0.5 rounded-lg text-xs">
+                <span className="font-bold text-slate-400">บทบาท:</span>
+                <span className="font-bold text-emerald-700 uppercase bg-emerald-100/60 px-2 py-0.5 rounded-lg text-xs">
                   {formData.role === 'STUDENT' ? 'นักศึกษา' : 'อาจารย์'}
                 </span>
               </div>
 
               {formData.role === 'STUDENT' && (
                 <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
-                  <span className="text-xs font-bold text-slate-400">รหัสนักศึกษา:</span>
-                  <span className="font-mono font-black text-slate-800">{formData.studentCode}</span>
+                  <span className="font-bold text-slate-400">รหัสนักศึกษา:</span>
+                  <span className="font-mono font-bold text-emerald-700">{formData.studentCode}</span>
                 </div>
               )}
 
               <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
-                <span className="text-xs font-bold text-slate-400">ชื่อ - นามสกุล:</span>
-                <span className="font-black text-slate-800">{formData.firstName} {formData.lastName}</span>
+                <span className="font-bold text-slate-400">ชื่อ - นามสกุล:</span>
+                <span className="font-bold text-slate-800">{formData.firstName} {formData.lastName}</span>
               </div>
 
               <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-slate-400">อีเมลระบบ:</span>
+                <span className="font-bold text-slate-400">อีเมลระบบ:</span>
                 <span className="font-medium text-slate-700">{formData.email}</span>
               </div>
             </div>
@@ -233,7 +255,7 @@ export default function RegisterUserPage() {
                 type="button"
                 disabled={loading}
                 onClick={() => setShowConfirmModal(false)}
-                className="flex-1 py-4 font-black text-slate-400 hover:text-slate-600 transition-all text-sm rounded-2xl"
+                className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 transition-all text-xs rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer"
               >
                 แก้ไขข้อมูล
               </button>
@@ -241,7 +263,7 @@ export default function RegisterUserPage() {
                 type="button"
                 disabled={loading}
                 onClick={handleConfirmSubmit}
-                className="flex-[2] bg-slate-900 hover:bg-black text-white py-4 rounded-2xl font-black text-sm uppercase tracking-wider shadow-xl transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
+                className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
               >
                 {loading ? 'กำลังบันทึก...' : 'ยืนยันถูกต้อง'}
               </button>
