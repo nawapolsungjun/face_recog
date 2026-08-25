@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
@@ -13,6 +13,15 @@ export default function AdminCourseStudentsPage() {
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // States สำหรับ Searchable Select ที่หน้าตาเหมือน Select Box
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isOpenSelect, setIsOpenSelect] = useState(false);
+  const selectBoxRef = useRef<HTMLDivElement>(null);
+
+  // States สำหรับค้นหาและจัดเรียงรายชื่อนักศึกษาในคลาส
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
   // States สำหรับโหมดแก้ไขข้อมูลวิชา
   const [isEditingCourse, setIsEditingCourse] = useState(false);
   const [editCode, setEditCode] = useState('');
@@ -21,6 +30,17 @@ export default function AdminCourseStudentsPage() {
 
   // Modal สำหรับคัดนักศึกษาออก
   const [studentToRemove, setStudentToRemove] = useState<{ id: number; name: string } | null>(null);
+
+  // ปิด Dropdown เมื่อคลิกนอกพื้นที่
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (selectBoxRef.current && !selectBoxRef.current.contains(event.target as Node)) {
+        setIsOpenSelect(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // ฟังก์ชันดึงข้อมูลวิชาและนักศึกษา
   const fetchData = useCallback(async () => {
@@ -93,6 +113,7 @@ export default function AdminCourseStudentsPage() {
       if (json.success) {
         alert("เพิ่มนักศึกษาเข้าชั้นเรียนเรียบร้อย");
         setSelectedStudentId('');
+        setSearchQuery('');
         fetchData();
       } else {
         alert(json.error);
@@ -125,6 +146,54 @@ export default function AdminCourseStudentsPage() {
     }
   };
 
+  // นักศึกษาที่ยังไม่ได้ลงทะเบียนในวิชานี้
+  const availableStudents = useMemo(() => {
+    const enrolledIds = new Set((course?.students || []).map((s: any) => s.id));
+    const available = allStudents.filter((s: any) => !enrolledIds.has(s.id));
+
+    return available
+      .map((student: any) => {
+        const studentName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || student.name || 'ไม่ระบุชื่อ';
+        return {
+          ...student,
+          cleanDisplayName: studentName,
+          fullLabel: `[${student.studentCode}] ${studentName}`
+        };
+      })
+      .sort((a: any, b: any) => (a.studentCode || '').localeCompare(b.studentCode || '', undefined, { numeric: true }));
+  }, [allStudents, course?.students]);
+
+  // กรองรายชื่อใน Select เมื่อพิมพ์ค้นหา
+  const filteredDropdownOptions = useMemo(() => {
+    if (!searchQuery.trim()) return availableStudents;
+    const q = searchQuery.toLowerCase().trim();
+    return availableStudents.filter(
+      (s: any) => s.studentCode.toLowerCase().includes(q) || s.cleanDisplayName.toLowerCase().includes(q)
+    );
+  }, [availableStudents, searchQuery]);
+
+  // กรองและเรียงลำดับรายชื่อนักศึกษาในตารางคลาส
+  const filteredAndSortedStudents = useMemo(() => {
+    if (!course?.students) return [];
+    return [...course.students]
+      .filter((student: any) => {
+        if (!searchTerm.trim()) return true;
+        const term = searchTerm.toLowerCase().trim();
+        const code = (student.studentCode || '').toLowerCase();
+        const studentName = `${student.firstName || ''} ${student.lastName || ''} ${student.name || ''}`.toLowerCase();
+        return code.includes(term) || studentName.includes(term);
+      })
+      .sort((a: any, b: any) => {
+        const codeA = a.studentCode || '';
+        const codeB = b.studentCode || '';
+        if (sortOrder === 'asc') {
+          return codeA.localeCompare(codeB, undefined, { numeric: true });
+        } else {
+          return codeB.localeCompare(codeA, undefined, { numeric: true });
+        }
+      });
+  }, [course?.students, searchTerm, sortOrder]);
+
   if (loading && !course) {
     return (
       <div className="min-h-screen bg-[#f0f7f4] flex items-center justify-center font-sans">
@@ -136,12 +205,6 @@ export default function AdminCourseStudentsPage() {
     );
   }
 
-  const sortedStudents = [...(course?.students || [])].sort((a: any, b: any) => {
-    const codeA = a.studentCode || '';
-    const codeB = b.studentCode || '';
-    return codeA.localeCompare(codeB, undefined, { numeric: true });
-  });
-
   const teacherName = course?.teacher?.firstName
     ? `${course.teacher.firstName} ${course.teacher.lastName || ''}`.trim()
     : course?.teacher?.name || 'ไม่ระบุอาจารย์';
@@ -149,7 +212,7 @@ export default function AdminCourseStudentsPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
       
-      {/* 1. Header ด้านบนตาม Style Canva (หัวข้อตรงกลาง 100%) */}
+      {/* 1. Header ด้านบน */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
         <div className="absolute top-6 left-6 flex items-center gap-3">
           <Link
@@ -167,18 +230,18 @@ export default function AdminCourseStudentsPage() {
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบเช็คชื่อนักเรียน
+          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน สาขาวิชานวัตกรรมระบบสารสนเทศ
+          สาขาวิชานวัตกรรมระบบสารสนเทศ
         </p>
       </header>
   
-      {/* 3. Main Content */}
-      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8">
+      {/* 2. Main Content */}
+      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 space-y-6">
         
-        {/* รายละเอียดวิชาหัวข้อหลัก + ฟอร์มแก้ไขในตัว */}
-        <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80 mb-6">
+        {/* รายละเอียดวิชาหัวข้อหลัก */}
+        <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80">
           {!isEditingCourse ? (
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
@@ -244,88 +307,156 @@ export default function AdminCourseStudentsPage() {
           )}
         </div>
 
-        {/* ฟอร์มเพิ่มนักศึกษาเข้าชั้นเรียน */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80 mb-6">
-          <h3 className="text-base font-black text-slate-800 mb-3">เพิ่มนักศึกษาเข้าสู่รายวิชานี้</h3>
-          <form onSubmit={handleAddStudent} className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1">
-              <select
-                value={selectedStudentId}
-                onChange={(e) => setSelectedStudentId(e.target.value)}
-                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none font-bold text-xs md:text-sm text-slate-700 cursor-pointer"
+        {/* ฟอร์มเพิ่มนักศึกษาเข้าชั้นเรียน (Custom Searchable Select Style) */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-base font-black text-slate-800">เพิ่มนักศึกษาเข้าสู่รายวิชานี้</h3>
+            <span className="text-xs text-slate-400 font-bold">
+              คงเหลือยังไม่ลงทะเบียน {availableStudents.length} คน
+            </span>
+          </div>
+
+          <form onSubmit={handleAddStudent} className="flex flex-col sm:flex-row gap-3 items-center">
+            
+            {/* Searchable Select Component */}
+            <div className="relative flex-1 w-full" ref={selectBoxRef}>
+              <div 
+                className="relative w-full cursor-pointer"
+                onClick={() => setIsOpenSelect(prev => !prev)}
               >
-                <option value="">-- เลือกนักศึกษาจากฐานข้อมูลระบบ --</option>
-                {allStudents.map((student) => {
-                  const studentName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || student.name || 'ไม่ระบุชื่อ';
-                  return (
-                    <option key={student.id} value={student.id}>
-                      [{student.studentCode}] {studentName}
-                    </option>
-                  );
-                })}
-              </select>
+                <input
+                  type="text"
+                  placeholder={`-- เลือกนักศึกษาจากฐานข้อมูลระบบ (${availableStudents.length} คนที่ยังไม่ลงทะเบียน) --`}
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setSelectedStudentId('');
+                    setIsOpenSelect(true);
+                  }}
+                  onFocus={() => setIsOpenSelect(true)}
+                  className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-text"
+                />
+                
+                {/* ไอคอน Dropdown Arrow ด้านขวาให้เหมือน Select */}
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* เมนูตัวเลือก Dropdown List */}
+              {isOpenSelect && (
+                <div className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl max-h-64 overflow-y-auto z-50 divide-y divide-slate-100 animate-in fade-in duration-150">
+                  {filteredDropdownOptions.length > 0 ? (
+                    filteredDropdownOptions.map((student: any) => (
+                      <div
+                        key={student.id}
+                        onClick={() => {
+                          setSelectedStudentId(String(student.id));
+                          setSearchQuery(student.fullLabel);
+                          setIsOpenSelect(false);
+                        }}
+                        className={`px-4 py-2.5 text-xs md:text-sm cursor-pointer hover:bg-emerald-50/80 transition-colors flex justify-between items-center ${
+                          selectedStudentId === String(student.id) ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
+                        }`}
+                      >
+                        <span className="font-mono font-bold text-emerald-700">[{student.studentCode}]</span>
+                        <span className="font-bold text-slate-800">{student.cleanDisplayName}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-4 text-center text-xs text-slate-400 font-bold">
+                      ไม่พบข้อมูลที่ตรงกับคำค้นหา
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs md:text-sm shadow-sm transition-all active:scale-95 whitespace-nowrap disabled:bg-slate-200 cursor-pointer"
+              disabled={isSubmitting || !selectedStudentId}
+              className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white px-6 py-2.5 rounded-xl font-bold text-xs md:text-sm shadow-sm transition-all whitespace-nowrap disabled:bg-slate-300 cursor-pointer"
             >
               {isSubmitting ? 'กำลังบันทึก...' : '+ เพิ่มเข้าวิชา'}
             </button>
           </form>
         </div>
 
+        {/* แถบค้นหาในคลาส */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 flex items-center justify-between gap-3">
+          <div className="relative w-full max-w-sm">
+            <input
+              type="text"
+              placeholder="ค้นหารหัส หรือ ชื่อในวิชานี้..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+            />
+          </div>
+          <span className="text-xs text-slate-500 font-bold">
+            แสดง <span className="text-emerald-700 font-black">{filteredAndSortedStudents.length}</span> จากทั้งหมด {course?.students?.length || 0} คน
+          </span>
+        </div>
+
         {/* ตารางแสดงรายชื่อนักศึกษาในวิชานี้ */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
-          <div className="p-4 md:p-5 bg-slate-50/80 border-b border-slate-200/60 flex justify-between items-center">
-            <h3 className="font-bold text-slate-700 text-xs md:text-sm">รายชื่อนักศึกษาในคลาส</h3>
-            <span className="text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1 rounded-xl">
-              ทั้งหมด {sortedStudents.length} คน
-            </span>
-          </div>
-
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50/50 border-b border-slate-200/60">
+                <tr className="bg-slate-50/80 border-b border-slate-200/60">
                   <th className="p-4 text-xs font-bold text-slate-600 w-16 text-center">ลำดับ</th>
-                  <th className="p-4 text-xs font-bold text-slate-600 w-44">รหัสประจำตัว</th>
+                  
+                  <th 
+                    className="p-4 text-xs font-bold text-slate-600 w-48 cursor-pointer select-none hover:bg-slate-100 transition-colors"
+                    onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                    title="คลิกเพื่อเรียงลำดับรหัส"
+                  >
+                    <div className="inline-flex items-center gap-1.5">
+                      <span>รหัสประจำตัว</span>
+                      <span className="text-[10px] bg-slate-200/70 text-slate-600 px-1.5 py-0.5 rounded font-black">
+                        {sortOrder === 'asc' ? '▲' : '▼'}
+                      </span>
+                    </div>
+                  </th>
+
                   <th className="p-4 text-xs font-bold text-slate-600">ชื่อ - นามสกุล</th>
                   <th className="p-4 text-xs font-bold text-slate-600 text-center w-36">การดำเนินการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {sortedStudents.map((student: any, index: number) => {
-                  const studentName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || student.name || 'ไม่ระบุชื่อ';
+                {filteredAndSortedStudents.length > 0 ? (
+                  filteredAndSortedStudents.map((student: any, index: number) => {
+                    const studentName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || student.name || 'ไม่ระบุชื่อ';
 
-                  return (
-                    <tr key={student.id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="p-4 text-xs font-bold text-slate-400 text-center">
-                        {index + 1}
-                      </td>
-                      <td className="p-4 font-mono text-xs md:text-sm font-bold text-emerald-700">
-                        {student.studentCode}
-                      </td>
-                      <td className="p-4 font-bold text-slate-800 text-xs md:text-sm">
-                        {studentName}
-                      </td>
-                      <td className="p-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => setStudentToRemove({ id: student.id, name: studentName })}
-                          className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded-xl font-bold text-xs transition-all border border-red-200/60 cursor-pointer"
-                        >
-                          คัดออก
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-
-                {sortedStudents.length === 0 && (
+                    return (
+                      <tr key={student.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="p-4 text-xs font-bold text-slate-400 text-center">
+                          {index + 1}
+                        </td>
+                        <td className="p-4 font-mono text-xs md:text-sm font-bold text-emerald-700">
+                          {student.studentCode}
+                        </td>
+                        <td className="p-4 font-bold text-slate-800 text-xs md:text-sm">
+                          {studentName}
+                        </td>
+                        <td className="p-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setStudentToRemove({ id: student.id, name: studentName })}
+                            className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded-xl font-bold text-xs transition-all border border-red-200/60 cursor-pointer"
+                          >
+                            คัดออก
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
                   <tr>
                     <td colSpan={4} className="text-center p-14 text-slate-400 font-bold text-xs">
-                      ยังไม่มีนักศึกษาลงทะเบียนในรายวิชานี้
+                      {searchTerm ? 'ไม่พบข้อมูลที่ตรงกับคำค้นหา' : 'ยังไม่มีนักศึกษาลงทะเบียนในรายวิชานี้'}
                     </td>
                   </tr>
                 )}
@@ -336,7 +467,7 @@ export default function AdminCourseStudentsPage() {
 
       </main>
 
-      {/* 4. Footer ด้านล่าง */}
+      {/* 3. Footer ด้านล่าง */}
       <footer className="bg-white text-[#0f766e] py-4 px-4 text-center text-xs font-medium border-t border-slate-100 mt-auto">
         ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
       </footer>

@@ -31,7 +31,7 @@ export default function RegisterUserPage() {
     setShowConfirmModal(true);
   };
 
-  // ส่งข้อมูลลงทะเบียนจริง
+  // ส่งข้อมูลลงทะเบียนทีละคน
   const handleConfirmSubmit = async () => {
     setLoading(true);
 
@@ -57,7 +57,7 @@ export default function RegisterUserPage() {
         alert('เกิดข้อผิดพลาด: ' + data.error);
         setShowConfirmModal(false);
       }
-    } catch (err) {
+    } catch {
       alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
       setShowConfirmModal(false);
     } finally {
@@ -68,7 +68,7 @@ export default function RegisterUserPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
 
-      {/* 1. Header ด้านบนตาม Style Canva (หัวข้อตรงกลาง 100%) */}
+      {/* 1. Header */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
         <div className="absolute top-6 left-6">
           <Link
@@ -79,14 +79,14 @@ export default function RegisterUserPage() {
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบเช็คชื่อนักเรียน
+          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน สาขาวิชานวัตกรรมระบบสารสนเทศ
+          สาขาวิชานวัตกรรมระบบสารสนเทศ
         </p>
       </header>
 
-      {/* 3. Main Content Card */}
+      {/* 2. Main Content Card */}
       <main className="flex-1 max-w-2xl w-full mx-auto p-4 md:py-8 flex flex-col justify-center">
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80">
 
@@ -97,7 +97,7 @@ export default function RegisterUserPage() {
 
           <form onSubmit={handleOpenConfirm} className="space-y-4">
 
-            {/* 1. บทบาท */}
+            {/* บทบาท */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 บทบาทผู้ใช้งาน
@@ -112,7 +112,7 @@ export default function RegisterUserPage() {
               </select>
             </div>
 
-            {/* 2. ชื่อจริง และ นามสกุล */}
+            {/* ชื่อจริง และ นามสกุล */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -143,7 +143,7 @@ export default function RegisterUserPage() {
               </div>
             </div>
 
-            {/* 3. รหัสนักศึกษา (แสดงเฉพาะนักศึกษา) และ อีเมล */}
+            {/* รหัสนักศึกษา และ อีเมล */}
             <div className={`grid ${formData.role === 'STUDENT' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'} gap-4`}>
               {formData.role === 'STUDENT' && (
                 <div className="animate-in slide-in-from-top-2 duration-300">
@@ -176,7 +176,7 @@ export default function RegisterUserPage() {
               </div>
             </div>
 
-            {/* 4. รหัสผ่าน */}
+            {/* รหัสผ่าน */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 รหัสผ่านเริ่มต้น
@@ -194,7 +194,6 @@ export default function RegisterUserPage() {
               </p>
             </div>
 
-            {/* ปุ่มเปิด Modal ยืนยัน */}
             <div className="pt-2">
               <button
                 type="submit"
@@ -207,7 +206,7 @@ export default function RegisterUserPage() {
         </div>
       </main>
 
-      {/* 4. Footer ด้านล่าง */}
+      {/* Footer */}
       <footer className="bg-white text-[#0f766e] py-4 px-4 text-center text-xs font-medium border-t border-slate-100 mt-auto">
         ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
       </footer>

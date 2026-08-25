@@ -65,7 +65,7 @@ export async function GET() {
 }
 
 /**
- * [DELETE] - ยกเลิกบัญชีผู้ใช้ถาวร
+ * [DELETE] - ยกเลิกบัญชีผู้ใช้ถาวร (เคลียร์ Foreign Key Dependencies อัตโนมัติ)
  */
 export async function DELETE(request: Request) {
   try {
@@ -76,17 +76,101 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: 'ไม่พบ ID ผู้ใช้ที่ต้องการลบ' }, { status: 400 });
     }
 
-    // ลบข้อมูลจากตาราง User (Cascade Delete จะจัดการข้อมูลที่เชื่อมโยงกัน)
-    await prisma.user.delete({
-      where: { id: id }
+    // 1. ค้นหา User พร้อมความสัมพันธ์ของ Student และ Teacher
+    const targetUser = await prisma.user.findUnique({
+      where: { id: id },
+      include: {
+        student: {
+          include: {
+            attendances: true,
+            courses: true,
+          }
+        },
+        teacher: {
+          include: {
+            courses: {
+              include: {
+                attendances: true,
+                students: true,
+              }
+            }
+          }
+        }
+      }
     });
 
-    return NextResponse.json({ success: true, message: 'ลบบัญชีผู้ใช้เรียบร้อยแล้ว' });
+    if (!targetUser) {
+      return NextResponse.json({ success: false, error: 'ไม่พบบัญชีผู้ใช้นี้ในระบบ' }, { status: 404 });
+    }
+
+    // 2. ใช้ Transaction จัดการลบข้อมูลลูกตามลำดับ
+    await prisma.$transaction(async (tx) => {
+      // 2.1 หากเป็น Student
+      if (targetUser.student) {
+        // ลบประวัติการเช็คชื่อของนักศึกษาคนนี้ทั้งหมด
+        await tx.attendance.deleteMany({
+          where: { studentId: targetUser.student.id }
+        });
+
+        // ปลดความสัมพันธ์รายวิชาที่นักศึกษาลงเรียน
+        await tx.student.update({
+          where: { id: targetUser.student.id },
+          data: {
+            courses: {
+              set: []
+            }
+          }
+        });
+
+        // ลบเรคคอร์ด Student
+        await tx.student.delete({
+          where: { id: targetUser.student.id }
+        });
+      }
+
+      // 2.2 หากเป็น Teacher
+      if (targetUser.teacher) {
+        // วนลูปจัดการคอร์สที่อาจารย์ท่านนี้สอน
+        for (const course of targetUser.teacher.courses) {
+          // ลบประวัติการเช็คชื่อในคอร์สนี้ทั้งหมด
+          await tx.attendance.deleteMany({
+            where: { courseId: course.id }
+          });
+
+          // ปลดนักศึกษาทั้งหมดออกจากคอร์สนี้
+          await tx.course.update({
+            where: { id: course.id },
+            data: {
+              students: {
+                set: []
+              }
+            }
+          });
+
+          // ลบคอร์สนี้ทิ้ง
+          await tx.course.delete({
+            where: { id: course.id }
+          });
+        }
+
+        // ลบเรคคอร์ด Teacher
+        await tx.teacher.delete({
+          where: { id: targetUser.teacher.id }
+        });
+      }
+
+      // 2.3 ลบ User ออกจากระบบ
+      await tx.user.delete({
+        where: { id: id }
+      });
+    });
+
+    return NextResponse.json({ success: true, message: 'ลบบัญชีผู้ใช้และข้อมูลที่เกี่ยวข้องเรียบร้อยแล้ว' });
 
   } catch (error: any) {
     console.error("Admin Users DELETE Error:", error.message);
     return NextResponse.json(
-      { success: false, error: 'ไม่สามารถลบผู้ใช้ได้ (ข้อมูลอาจมีการเชื่อมโยงกับรายวิชาหรือประวัติเช็คชื่อ)' }, 
+      { success: false, error: error.message || 'ไม่สามารถลบผู้ใช้ได้' }, 
       { status: 500 }
     );
   }

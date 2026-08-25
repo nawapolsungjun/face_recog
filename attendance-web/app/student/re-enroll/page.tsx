@@ -42,7 +42,7 @@ export default function ReEnrollPage() {
 
     const userData = JSON.parse(savedUser);
     const initialName = `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.name || userData.displayName || 'นักศึกษา';
-    
+
     setUser({ ...userData, displayName: initialName });
     setStatus(`คุณ ${initialName} สามารถอัปเดตใบหน้าใหม่ได้ที่นี่`);
 
@@ -204,7 +204,7 @@ export default function ReEnrollPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
-      
+
       {/* 1. Header ด้านบนตาม Style Canva (หัวข้อตรงกลาง 100%) */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
         <div className="absolute top-6 left-6">
@@ -223,17 +223,10 @@ export default function ReEnrollPage() {
         </p>
       </header>
 
-      {/* 2. Navigation Bar */}
-      <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto">
-        <div className="max-w-xl mx-auto flex items-center justify-center gap-1 min-w-max py-2 text-white font-bold text-xs">
-          <span className="px-3 py-1 bg-white/20 rounded-lg">อัปเดตโมเดลใบหน้า (Face Update)</span>
-        </div>
-      </nav>
-
       {/* 3. Main Content Card */}
       <main className="flex-1 max-w-xl w-full mx-auto p-4 md:py-8 flex flex-col justify-center">
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80">
-          
+
           <div className="text-center mb-6 pb-4 border-b border-slate-100">
             <h2 className="text-xl font-black text-slate-800">อัปเดต <span className="text-emerald-700">ใบหน้าใหม่</span></h2>
             <p className="text-slate-400 mt-1 font-medium text-xs">
@@ -243,21 +236,19 @@ export default function ReEnrollPage() {
 
           {/* เมนูสลับวิธีลงทะเบียน */}
           <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 mb-6">
-            <button 
-              type="button" 
-              onClick={() => setRegMode('upload')} 
-              className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                regMode === 'upload' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
+            <button
+              type="button"
+              onClick={() => setRegMode('upload')}
+              className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${regMode === 'upload' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
             >
               Upload Files
             </button>
-            <button 
-              type="button" 
-              onClick={() => setRegMode('scan')} 
-              className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                regMode === 'scan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
+            <button
+              type="button"
+              onClick={() => setRegMode('scan')}
+              className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${regMode === 'scan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
             >
               Face Scan
             </button>
@@ -272,13 +263,13 @@ export default function ReEnrollPage() {
             </div>
 
             <div className="p-6 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50 text-center">
-              <input 
-                type="file" 
-                multiple 
-                accept="image/*" 
-                onChange={handleFileChange} 
-                disabled={isLoading} 
-                className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer" 
+              <input
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleFileChange}
+                disabled={isLoading}
+                className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
               />
               {previews.length > 0 && (
                 <div className="flex flex-wrap justify-center gap-2 mt-4">
@@ -306,11 +297,11 @@ export default function ReEnrollPage() {
 
             <div className="flex flex-col items-center p-5 bg-slate-50 rounded-xl border border-slate-200/80">
               <div className="w-44 h-44 rounded-full overflow-hidden border-4 border-emerald-500 mb-4 relative shadow-sm">
-                <Webcam 
-                  audio={false} 
-                  ref={webcamRef} 
-                  screenshotFormat="image/jpeg" 
-                  className="w-full h-full object-cover scale-x-[-1]" 
+                <Webcam
+                  audio={false}
+                  ref={webcamRef}
+                  screenshotFormat="image/jpeg"
+                  className="w-full h-full object-cover scale-x-[-1]"
                 />
               </div>
 
@@ -318,16 +309,16 @@ export default function ReEnrollPage() {
                 <div className="bg-emerald-600 h-full transition-all duration-500" style={{ width: `${scanProgress}%` }}></div>
               </div>
 
-              <button 
-                type="button" 
-                onClick={captureScan} 
-                disabled={isLoading || scanStepIndex >= SCAN_STEPS.length} 
+              <button
+                type="button"
+                onClick={captureScan}
+                disabled={isLoading || scanStepIndex >= SCAN_STEPS.length}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs active:scale-95 disabled:opacity-40 cursor-pointer transition-all shadow-sm"
               >
-                {isLoading 
-                  ? 'กำลังประมวลผล...' 
-                  : scanStepIndex >= SCAN_STEPS.length 
-                    ? 'สแกนครบทุกมุมแล้ว' 
+                {isLoading
+                  ? 'กำลังประมวลผล...'
+                  : scanStepIndex >= SCAN_STEPS.length
+                    ? 'สแกนครบทุกมุมแล้ว'
                     : `บันทึกมุม: ${SCAN_STEPS[scanStepIndex].label.split(' ')[0]}`}
               </button>
             </div>
@@ -343,10 +334,10 @@ export default function ReEnrollPage() {
             >
               {isLoading ? 'กำลังประมวลผล...' : 'ยืนยันการอัปเดตใบหน้า'}
             </button>
-            
+
             {(previews.length > 0 || capturedVectors.length > 0) && !isLoading && (
-              <button 
-                onClick={handleReset} 
+              <button
+                onClick={handleReset}
                 className="w-full text-slate-400 hover:text-slate-600 text-center text-xs font-bold mt-3 cursor-pointer"
               >
                 ล้างข้อมูลและเริ่มใหม่
@@ -359,11 +350,10 @@ export default function ReEnrollPage() {
           </div>
 
           {status && (
-            <div className={`p-3 rounded-xl text-center text-xs font-bold mt-4 border ${
-              status.includes('ข้อผิดพลาด') 
-                ? 'bg-red-50 text-red-600 border-red-100' 
+            <div className={`p-3 rounded-xl text-center text-xs font-bold mt-4 border ${status.includes('ข้อผิดพลาด')
+                ? 'bg-red-50 text-red-600 border-red-100'
                 : 'bg-emerald-50/60 text-emerald-700 border-emerald-100'
-            }`}>
+              }`}>
               {status}
             </div>
           )}
@@ -382,7 +372,7 @@ export default function ReEnrollPage() {
             <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
               ✓
             </div>
-            
+
             <h3 className="text-xl font-black text-slate-800">ยืนยันการอัปเดตใบหน้า</h3>
             <p className="text-xs text-slate-400 mt-1 leading-relaxed">
               คุณต้องการบันทึกข้อมูลใบหน้าชุดใหม่สำหรับนักศึกษา <br />

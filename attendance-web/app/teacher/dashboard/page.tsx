@@ -269,7 +269,7 @@ export default function TeacherDashboard() {
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="text-center md:text-left">
             <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-              ระบบเช็คชื่อนักเรียน
+              ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
             </h1>
             <p className="text-emerald-100 font-medium text-xs md:text-sm">
               อาจารย์ผู้สอน: <span className="font-bold text-white">{teacherInfo.displayName}</span>

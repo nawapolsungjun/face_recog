@@ -214,19 +214,12 @@ export default function FaceEnrollmentPage() {
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบเช็คชื่อนักเรียน
+          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
           ลงทะเบียนใบหน้า: <span className="font-bold text-white">{user?.displayName || 'กำลังโหลด...'}</span> {user?.studentCode ? `(${user.studentCode})` : ''}
         </p>
       </header>
-
-      {/* 2. Navigation Bar */}
-      <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto">
-        <div className="max-w-xl mx-auto flex items-center justify-center gap-1 min-w-max py-2 text-white font-bold text-xs">
-          <span className="px-3 py-1 bg-white/20 rounded-lg">ลงทะเบียนโมเดลใบหน้า (Face Enrollment)</span>
-        </div>
-      </nav>
 
       {/* 3. Main Content Card */}
       <main className="flex-1 max-w-xl w-full mx-auto p-4 md:py-8 flex flex-col justify-center">

@@ -47,10 +47,10 @@ export default function AdminCoursesReportPage() {
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบเช็คชื่อนักเรียน
+          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน สาขาวิชานวัตกรรมระบบสารสนเทศ
+          สาขาวิชานวัตกรรมระบบสารสนเทศ
         </p>
       </header>
 

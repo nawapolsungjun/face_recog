@@ -234,7 +234,7 @@ export default function StudentDashboard() {
         <div className="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="text-center md:text-left">
             <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-              ระบบเช็คชื่อนักเรียน
+              ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
             </h1>
             <p className="text-emerald-100 font-medium text-xs md:text-sm">
               นักศึกษา: <span className="font-bold text-white">{user?.displayName}</span> <span className="font-mono text-emerald-200">({user?.studentCode})</span>
