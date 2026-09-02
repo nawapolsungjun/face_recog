@@ -18,6 +18,14 @@ interface StudentInCourse {
   name?: string;
 }
 
+// Preset ช่วงเวลามาตรฐาน (เรียบง่าย ไม่มี Emoji)
+const TIME_PRESETS = [
+  { id: 'morning', label: 'คาบเช้า', start: '09:00', end: '12:00' },
+  { id: 'afternoon', label: 'คาบบ่าย', start: '13:00', end: '16:00' },
+  { id: 'evening', label: 'คาบค่ำ', start: '17:00', end: '20:00' },
+  { id: 'custom', label: 'กำหนดเอง', start: '', end: '' },
+];
+
 export default function AttendancePage() {
   const params = useParams();
   const router = useRouter();
@@ -41,17 +49,48 @@ export default function AttendancePage() {
     return `${year}-${month}-${day}`;
   });
 
+  // State สำหรับจัดการช่วงเวลา & การสอนชดเชย
+  const [sessionType, setSessionType] = useState<'REGULAR' | 'COMPENSATION'>('REGULAR');
+  const [selectedPreset, setSelectedPreset] = useState<string>('morning');
+  const [startTime, setStartTime] = useState('09:00');
+  const [endTime, setEndTime] = useState('12:00');
+
   const [dailyRoundNumber, setDailyRoundNumber] = useState<number>(1);
   const [previousRoundAttendance, setPreviousRoundAttendance] = useState<any[]>([]);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  // State สำหรับ Custom Alert / Success Popup
+  const [alertModal, setAlertModal] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    isSuccess?: boolean;
+    onClose?: () => void;
+  }>({
+    show: false,
+    title: '',
+    message: '',
+    isSuccess: true,
+  });
 
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const imageRefs = useRef<(HTMLImageElement | null)[]>([]);
 
   const getAuthToken = () => localStorage.getItem('teacher_token') || localStorage.getItem('token');
 
+  const handleSelectPreset = (presetId: string) => {
+    setSelectedPreset(presetId);
+    const found = TIME_PRESETS.find(p => p.id === presetId);
+    if (found && presetId !== 'custom') {
+      setStartTime(found.start);
+      setEndTime(found.end);
+    }
+  };
+
   const fetchInitialData = useCallback(async () => {
     const token = getAuthToken();
+    const currentSlot = `${startTime}-${endTime}`;
+
     try {
       const resCourse = await fetch(`/api/courses/${courseId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -70,45 +109,48 @@ export default function AttendancePage() {
         }
       }
 
-      const [resDaily, resHistory] = await Promise.all([
-        fetch(`/api/report/${courseId}?date=${selectedDate}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch(`/api/attendance/history/${courseId}?date=${selectedDate}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).catch(() => null)
-      ]);
-
-      const dailyJson = await resDaily.json();
-      let historyJson = null;
-      if (resHistory && resHistory.ok) {
-        historyJson = await resHistory.json();
-      }
+      // ดึงข้อมูลประวัติแยกตาม วันที่ + ช่วงเวลา + ประเภทคาบเรียน
+      const resHistory = await fetch(
+        `/api/attendance/history/${courseId}?date=${selectedDate}&timeSlot=${currentSlot}&sessionType=${sessionType}`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      ).catch(() => null);
 
       let recordedRoundsCount = 0;
-      if (historyJson?.success && Array.isArray(historyJson.data)) {
-        recordedRoundsCount = historyJson.data.length;
+      let existingSessionData: any[] = [];
+
+      if (resHistory && resHistory.ok) {
+        const historyJson = await resHistory.json();
+        if (historyJson?.success && Array.isArray(historyJson.data)) {
+          const matchedSessions = historyJson.data.filter((item: any) => {
+            const matchSlot = item.timeSlot ? item.timeSlot === currentSlot : true;
+            const matchType = item.sessionType ? item.sessionType === sessionType : true;
+            return matchSlot && matchType;
+          });
+
+          recordedRoundsCount = matchedSessions.length;
+          if (matchedSessions.length > 0) {
+            existingSessionData = matchedSessions[matchedSessions.length - 1].records || [];
+          }
+        }
       }
 
-      const hasDailyAttendance = dailyJson.success && (
-        (dailyJson.summary && (dailyJson.summary.present > 0 || dailyJson.summary.late > 0 || dailyJson.summary.leave > 0)) ||
-        (Array.isArray(dailyJson.data) && dailyJson.data.some((item: any) => item.time || item.status === 'มาเรียน' || item.status === 'มาสาย'))
-      );
-
+      // กำหนดรอบการเช็คชื่อของคาบปัจจุบัน
       if (recordedRoundsCount >= 2) {
         setDailyRoundNumber(3);
-        setPreviousRoundAttendance(dailyJson.data || []);
-      } else if (recordedRoundsCount === 1 || hasDailyAttendance) {
+        setPreviousRoundAttendance(existingSessionData);
+      } else if (recordedRoundsCount === 1) {
         setDailyRoundNumber(2);
-        setPreviousRoundAttendance(dailyJson.data || []);
+        setPreviousRoundAttendance(existingSessionData);
       } else {
         setDailyRoundNumber(1);
         setPreviousRoundAttendance([]);
       }
     } catch (err) {
       console.error('Fetch initial data error:', err);
+      setDailyRoundNumber(1);
+      setPreviousRoundAttendance([]);
     }
-  }, [courseId, selectedDate]);
+  }, [courseId, selectedDate, startTime, endTime, sessionType]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -133,7 +175,7 @@ export default function AttendancePage() {
     if (courseId) {
       fetchInitialData();
     }
-  }, [courseId, selectedDate, fetchInitialData]);
+  }, [courseId, fetchInitialData]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -228,7 +270,7 @@ export default function AttendancePage() {
     return courseStudents.map(student => {
       const fullName = `${student.firstName || ''} ${student.lastName || ''}`.replace(/\s+/g, ' ').trim();
       const displayName = fullName || student.name || 'ไม่ระบุชื่อ';
-      
+
       const isDetectedInCurrentScan = cleanedDetected.includes(fullName) ||
         (student.name && cleanedDetected.includes(student.name.trim())) ||
         (student.firstName && cleanedDetected.includes(student.firstName.trim()));
@@ -237,41 +279,42 @@ export default function AttendancePage() {
         (p: any) => p.studentId === student.id || p.id === student.id || p.studentCode === student.studentCode
       );
 
+      const sessionPrefix = sessionType === 'COMPENSATION' ? '[สอนชดเชย] ' : '';
       let finalStatus: 'มาเรียน' | 'มาสาย' | 'ขาดเรียน' = 'ขาดเรียน';
       let autoRemark = '';
 
       if (dailyRoundNumber === 1) {
         if (isDetectedInCurrentScan) {
           finalStatus = 'มาเรียน';
-          autoRemark = 'ตรวจพบในการเช็คชื่อรอบที่ 1';
+          autoRemark = `${sessionPrefix}ตรวจพบในการเช็คชื่อรอบที่ 1 (${startTime}-${endTime} น.)`;
         } else {
           finalStatus = 'ขาดเรียน';
-          autoRemark = 'ไม่พบในการเช็คชื่อรอบที่ 1';
+          autoRemark = `${sessionPrefix}ไม่พบในการเช็คชื่อรอบที่ 1 (${startTime}-${endTime} น.)`;
         }
       } else if (dailyRoundNumber === 2) {
         if (prevRecord?.status === 'มาเรียน') {
           finalStatus = 'มาเรียน';
-          autoRemark = prevRecord.remark || 'ตรวจพบในการเช็คชื่อรอบที่ 1';
+          autoRemark = prevRecord.remark || `${sessionPrefix}ตรวจพบในการเช็คชื่อรอบที่ 1`;
         } else if (isDetectedInCurrentScan) {
           finalStatus = 'มาสาย';
-          autoRemark = 'เช็คชื่อรอบที่ 2';
+          autoRemark = `${sessionPrefix}เช็คชื่อรอบที่ 2 (${startTime}-${endTime} น.)`;
         } else {
           finalStatus = 'ขาดเรียน';
-          autoRemark = 'ไม่พบในการเช็คชื่อทั้งสองรอบ';
+          autoRemark = `${sessionPrefix}ไม่พบในการเช็คชื่อทั้งสองรอบ`;
         }
       } else {
         if (prevRecord?.status === 'มาเรียน') {
           finalStatus = 'มาเรียน';
-          autoRemark = prevRecord.remark || 'ตรวจพบในการเช็คชื่อรอบที่ 1';
+          autoRemark = prevRecord.remark || `${sessionPrefix}ตรวจพบในการเช็คชื่อรอบที่ 1`;
         } else if (prevRecord?.status === 'มาสาย') {
           finalStatus = 'มาสาย';
-          autoRemark = prevRecord.remark || 'เช็คชื่อรอบที่ 2';
+          autoRemark = prevRecord.remark || `${sessionPrefix}เช็คชื่อรอบที่ 2`;
         } else if (isDetectedInCurrentScan) {
           finalStatus = 'มาสาย';
-          autoRemark = 'เช็คชื่อรอบเพิ่มเติม (เก็บตก)';
+          autoRemark = `${sessionPrefix}เช็คชื่อรอบเพิ่มเติม (เก็บตก)`;
         } else {
           finalStatus = 'ขาดเรียน';
-          autoRemark = 'ไม่พบในทุกรอบการเช็คชื่อ';
+          autoRemark = `${sessionPrefix}ไม่พบในทุกรอบการเช็คชื่อ`;
         }
       }
 
@@ -322,6 +365,8 @@ export default function AttendancePage() {
         body: JSON.stringify({
           courseId: courseId,
           date: selectedDate,
+          timeSlot: `${startTime}-${endTime}`,
+          sessionType: sessionType,
           imageUrls: imagesBase64,
           attendanceData: attendanceData,
           detectedNames: detectedStudents,
@@ -333,19 +378,37 @@ export default function AttendancePage() {
 
       if (data.success) {
         setShowConfirmModal(false);
-        const roundTitle = dailyRoundNumber >= 3 ? 'รอบเพิ่มเติม (เก็บตก)' : `รอบที่ ${dailyRoundNumber}`;
-        alert(`บันทึกการเช็คชื่อวันที่ ${selectedDate} (${roundTitle}) เรียบร้อยแล้ว`);
-        router.push(`/teacher/report/${courseId}`);
+        const roundTitle = dailyRoundNumber >= 3 ? 'รอบเพิ่มเติม' : `รอบที่ ${dailyRoundNumber}`;
+        const typeText = sessionType === 'COMPENSATION' ? '(คาบสอนชดเชย)' : '(คาบปกติ)';
+        setAlertModal({
+          show: true,
+          title: 'บันทึกสำเร็จเรียบร้อย',
+          message: `บันทึกการเช็คชื่อวันที่ ${selectedDate} ช่วงเวลา ${startTime}-${endTime} น. ${typeText} ${roundTitle} เรียบร้อยแล้ว`,
+          isSuccess: true,
+          onClose: () => router.push(`/teacher/report/${courseId}`),
+        });
       } else {
         throw new Error(data.error);
       }
     } catch (err: any) {
       setShowConfirmModal(false);
-      alert(`บันทึกไม่สำเร็จ: ${err.message}`);
+      setAlertModal({
+        show: true,
+        title: 'บันทึกไม่สำเร็จ',
+        message: err.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล',
+        isSuccess: false,
+      });
       setStatus('เกิดข้อผิดพลาดในการบันทึก');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleCloseAlertModal = () => {
+    if (alertModal.onClose) {
+      alertModal.onClose();
+    }
+    setAlertModal({ show: false, title: '', message: '', isSuccess: true });
   };
 
   const drawBoxes = (image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
@@ -374,8 +437,8 @@ export default function AttendancePage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
-      
-      {/* 1. Header ด้านบน */}
+
+      {/* 1. Header */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative print:hidden">
         <div className="absolute top-6 left-6">
           <Link
@@ -386,14 +449,14 @@ export default function AttendancePage() {
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
+          ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          วิชา: <span className="font-bold text-white">{courseInfo?.courseName || 'กำลังโหลด...'}</span> {courseInfo?.courseCode ? `(${courseInfo.courseCode})` : ''}
+          วิชา: <span className="font-bold text-white">{courseInfo?.courseCode || 'กำลังโหลด...'}</span>  <span className="text-white-200">{courseInfo?.courseName || 'กำลังโหลด...'}</span>
         </p>
       </header>
 
-      {/* 2. Navigation Tabs Bar (3 เมนูหลัก มาตรฐานเดียวกับหน้ารายงาน) */}
+      {/* 2. Navigation Tabs Bar */}
       <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto print:hidden">
         <div className="max-w-5xl mx-auto flex items-center justify-center gap-1 min-w-max">
           <button
@@ -430,11 +493,42 @@ export default function AttendancePage() {
 
       {/* 3. Main Content */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-8 flex flex-col items-center">
-        
-        {/* การ์ดเลือกวันที่ และอัปโหลดรูปภาพ */}
-        <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 w-full mb-6">
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5 pb-5 border-b border-slate-100">
+
+        {/* การ์ดเลือกวันที่, ช่วงเวลาคาบเรียน และอัปโหลดรูปภาพ */}
+        <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 w-full mb-6 space-y-5">
+
+          {/* ส่วนที่ 1: เลือกประเภทคาบเรียน (Basic Flat Switch) */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+            <div>
+              <span className="text-xs font-bold text-slate-800 block">ประเภทคาบเรียน</span>
+              <span className="text-[11px] text-slate-500">เลือกรูปแบบการเรียนการสอน</span>
+            </div>
+            <div className="inline-flex bg-slate-200/70 p-1 rounded-lg w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setSessionType('REGULAR')}
+                className={`flex-1 sm:flex-initial px-4 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${sessionType === 'REGULAR'
+                  ? 'bg-white text-emerald-800 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+                  }`}
+              >
+                คาบเรียนปกติ
+              </button>
+              <button
+                type="button"
+                onClick={() => setSessionType('COMPENSATION')}
+                className={`flex-1 sm:flex-initial px-4 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${sessionType === 'COMPENSATION'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+                  }`}
+              >
+                คาบสอนชดเชย
+              </button>
+            </div>
+          </div>
+
+          {/* ส่วนที่ 2: วันที่ & ช่วงเวลาคาบเรียน */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4 border-b border-slate-100">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
                 เลือกวันที่
@@ -443,62 +537,87 @@ export default function AttendancePage() {
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
+                className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
               />
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                สถานะการเช็คชื่อประจำวัน
+                ช่วงเวลาคาบเรียน
               </label>
-              <div className={`px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm border flex items-center justify-between ${
-                dailyRoundNumber === 1 
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
-                  : dailyRoundNumber === 2
-                  ? 'bg-amber-50 text-amber-800 border-amber-200'
-                  : 'bg-indigo-50 text-indigo-800 border-indigo-200'
-              }`}>
-                <span>
-                  {dailyRoundNumber === 1 && 'การเช็คชื่อรอบที่ 1'}
-                  {dailyRoundNumber === 2 && 'การเช็คชื่อรอบที่ 2'}
-                  {dailyRoundNumber >= 3 && 'การเช็คชื่อรอบเพิ่มเติม'}
-                </span>
-                <span className="text-[11px] font-medium opacity-85">
-                  {dailyRoundNumber === 1 && '(เริ่มคาบเรียน)'}
-                  {dailyRoundNumber === 2 && '(ตรวจซ้ำ / บันทึกสาย)'}
-                  {dailyRoundNumber >= 3 && '(เก็บตก)'}
-                </span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-2">
+                {TIME_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => handleSelectPreset(p.id)}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all text-center cursor-pointer ${selectedPreset === p.id
+                      ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Input เลือกระบุเวลาเริ่มต้น - สิ้นสุด */}
+              <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+                <input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => { setStartTime(e.target.value); setSelectedPreset('custom'); }}
+                  className="bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-lg px-2 py-1.5 flex-1 outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+                <span className="text-xs text-slate-400 font-bold">ถึง</span>
+                <input
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => { setEndTime(e.target.value); setSelectedPreset('custom'); }}
+                  className="bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-lg px-2 py-1.5 flex-1 outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+                <span className="text-xs text-slate-500 font-bold pr-1">น.</span>
               </div>
             </div>
           </div>
 
-          <div className="space-y-3 mb-5">
+          {/* ส่วนที่ 3: สถานะรอบการเช็คชื่อของคาบปัจจุบัน */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 rounded-xl border bg-slate-50 border-slate-200">
+            <span className="text-xs font-bold text-slate-700">
+              สถานะ: {dailyRoundNumber === 1 ? 'การเช็คชื่อรอบที่ 1 (เริ่มคาบ)' : dailyRoundNumber === 2 ? 'การเช็คชื่อรอบที่ 2 (ตรวจสาย)' : 'การเช็คชื่อรอบเพิ่มเติม (เก็บตก)'}
+            </span>
+            <span className="text-[11px] font-bold bg-white px-2.5 py-1 rounded-md border border-slate-200 text-slate-700">
+              {sessionType === 'COMPENSATION' ? '[สอนชดเชย]' : '[คาบปกติ]'} {selectedDate} ({startTime} - {endTime} น.)
+            </span>
+          </div>
+
+          {/* ส่วนที่ 4: อัปโหลดรูปภาพ */}
+          <div className="space-y-2">
             <label className="block text-xs font-bold text-slate-700">อัปโหลดรูปภาพกลุ่ม:</label>
             <input
               type="file" multiple accept="image/*"
               onChange={handleFileChange}
-              className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 transition-all cursor-pointer border border-slate-200 rounded-xl p-1.5"
+              className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 transition-all cursor-pointer border border-slate-200 rounded-xl p-1"
             />
           </div>
 
           <button
             onClick={handleScanAttendance}
             disabled={isLoading || !selectedFiles}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-3 rounded-xl font-bold text-sm shadow-sm disabled:bg-slate-200 disabled:text-slate-400 transition-all cursor-pointer mb-3"
+            className="w-full bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white py-3 rounded-xl font-bold text-sm shadow-xs disabled:bg-slate-200 disabled:text-slate-400 transition-all cursor-pointer"
           >
             {isLoading ? 'กำลังประมวลผลใบหน้า...' : 'เริ่มสแกนใบหน้า'}
           </button>
 
-          <div className={`text-center py-2.5 px-4 rounded-xl font-bold text-xs border ${
-            status.includes('ข้อผิดพลาด') 
-              ? 'bg-red-50 text-red-600 border-red-100' 
-              : 'bg-emerald-50/60 text-emerald-700 border-emerald-100'
-          }`}>
+          <div className={`text-center py-2.5 px-4 rounded-xl font-bold text-xs border ${status.includes('ข้อผิดพลาด')
+            ? 'bg-red-50 text-red-600 border-red-100'
+            : 'bg-slate-50 text-slate-700 border-slate-200'
+            }`}>
             {status}
           </div>
         </div>
 
-        {/* ตารางแสดงรายชื่อนักศึกษาทั้งหมดในคลาส พร้อมผลการตรวจสอบ */}
+        {/* ตารางแสดงผลการตรวจ */}
         {scanResults.length > 0 && (
           <div className="w-full bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80 mb-6 animate-in fade-in duration-300">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-5 pb-3 border-b border-slate-100">
@@ -511,25 +630,19 @@ export default function AttendancePage() {
                 </p>
               </div>
 
-              <span className={`text-xs font-bold px-3 py-1 rounded-lg border ${
-                dailyRoundNumber === 1 
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                  : dailyRoundNumber === 2
-                  ? 'bg-amber-50 text-amber-700 border-amber-200'
-                  : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-              }`}>
-                {dailyRoundNumber >= 3 ? 'รอบเพิ่มเติม (เก็บตก)' : `รอบที่ ${dailyRoundNumber}`} ประจำวันที่ {selectedDate}
+              <span className={`text-xs font-bold px-3 py-1 rounded-lg border ${sessionType === 'COMPENSATION' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-50 text-slate-700 border-slate-200'
+                }`}>
+                {sessionType === 'COMPENSATION' ? 'คาบสอนชดเชย' : 'คาบเรียนปกติ'} ({startTime} - {endTime} น.)
               </span>
             </div>
 
-            {/* แถวแสดงรายชื่อนักศึกษาทุกคน */}
             <div className="flex flex-col gap-2.5 mb-6">
               {attendanceEvaluationList.map((item, i) => {
                 const isFound = item.isDetectedInCurrentScan;
-                const statusColor = 
+                const statusColor =
                   item.finalStatus === 'มาเรียน' ? 'bg-emerald-50/60 border-emerald-200' :
-                  item.finalStatus === 'มาสาย' ? 'bg-amber-50/60 border-amber-200' :
-                  'bg-red-50/60 border-red-200';
+                    item.finalStatus === 'มาสาย' ? 'bg-amber-50/60 border-amber-200' :
+                      'bg-red-50/60 border-red-200';
 
                 return (
                   <div
@@ -537,9 +650,8 @@ export default function AttendancePage() {
                     className={`border rounded-xl px-4 py-3 flex items-center justify-between transition-all ${statusColor}`}
                   >
                     <div className="flex items-center gap-3">
-                      <span className={`w-7 h-7 rounded-lg font-bold text-xs flex items-center justify-center border ${
-                        isFound ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'
-                      }`}>
+                      <span className={`w-7 h-7 rounded-lg font-bold text-xs flex items-center justify-center border ${isFound ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'
+                        }`}>
                         {i + 1}
                       </span>
                       <div>
@@ -564,13 +676,12 @@ export default function AttendancePage() {
                         {item.studentCode}
                       </span>
 
-                      <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${
-                        item.finalStatus === 'มาเรียน'
-                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                          : item.finalStatus === 'มาสาย'
+                      <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${item.finalStatus === 'มาเรียน'
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : item.finalStatus === 'มาสาย'
                           ? 'bg-amber-100 text-amber-800 border-amber-300'
                           : 'bg-red-100 text-red-700 border-red-300'
-                      }`}>
+                        }`}>
                         {item.finalStatus}
                       </span>
                     </div>
@@ -581,9 +692,9 @@ export default function AttendancePage() {
 
             <button
               onClick={() => setShowConfirmModal(true)}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-3.5 rounded-xl font-bold text-sm shadow-sm transition-all cursor-pointer"
+              className="w-full bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white py-3.5 rounded-xl font-bold text-sm shadow-xs transition-all cursor-pointer"
             >
-              ยืนยันการบันทึกเข้าเรียน ({dailyRoundNumber >= 3 ? 'รอบเพิ่มเติม' : `รอบที่ ${dailyRoundNumber}`})
+              ยืนยันการบันทึกเข้าเรียน ({sessionType === 'COMPENSATION' ? 'สอนชดเชย' : 'คาบปกติ'} {startTime}-{endTime} น.)
             </button>
           </div>
         )}
@@ -611,30 +722,23 @@ export default function AttendancePage() {
         )}
       </main>
 
-      {/* 4. Footer ด้านล่าง */}
-      <footer className="bg-white text-[#0f766e] py-4 px-4 text-center text-xs font-medium border-t border-slate-100 mt-auto">
-        ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+      {/* 4. Footer */}
+      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
+        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
+        </p>
       </footer>
 
       {/* Modal Popup: ยืนยันการเช็คชื่อ */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200 text-center">
-            <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
-              ✓
-            </div>
-
-            <h3 className="text-xl font-black text-slate-800">ยืนยันการบันทึกเช็คชื่อ</h3>
-            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              บันทึกผลการเข้าเรียนประจำวันที่ <span className="font-bold text-slate-700">{selectedDate}</span><br />
-              <span className={`font-black text-sm ${
-                dailyRoundNumber === 1 
-                  ? 'text-emerald-600' 
-                  : dailyRoundNumber === 2 
-                  ? 'text-amber-600' 
-                  : 'text-indigo-600'
-              }`}>
-                {dailyRoundNumber >= 3 ? 'การเช็คชื่อรอบเพิ่มเติม (เก็บตก)' : `การเช็คชื่อรอบที่ ${dailyRoundNumber}`}
+            <h3 className="text-xl font-black text-slate-800 mb-1">ยืนยันการบันทึกเช็คชื่อ</h3>
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+              บันทึกผลประจำวันที่ <span className="font-bold text-slate-700">{selectedDate}</span><br />
+              <span className="font-bold text-emerald-800">
+                ช่วงเวลา: {startTime} - {endTime} น. {sessionType === 'COMPENSATION' ? '(สอนชดเชย)' : '(คาบปกติ)'}
               </span>
             </p>
 
@@ -668,7 +772,7 @@ export default function AttendancePage() {
                 type="button"
                 disabled={isSaving}
                 onClick={() => setShowConfirmModal(false)}
-                className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 transition-all text-xs rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer"
+                className="flex-1 py-2.5 font-bold text-slate-500 hover:text-slate-700 transition-all text-xs rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer"
               >
                 ยกเลิก
               </button>
@@ -676,14 +780,50 @@ export default function AttendancePage() {
                 type="button"
                 disabled={isSaving}
                 onClick={handleConfirmAndSave}
-                className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
+                className="flex-[2] bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
               >
-                {isSaving ? 'กำลังบันทึก...' : `ยืนยัน${dailyRoundNumber >= 3 ? 'รอบเพิ่มเติม' : `รอบที่ ${dailyRoundNumber}`}`}
+                {isSaving ? 'กำลังบันทึก...' : 'ยืนยันบันทึก'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Custom Modal: แจ้งเตือนสำเร็จ / ข้อผิดพลาด */}
+      {alertModal.show && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
+            {alertModal.isSuccess ? (
+              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+            ) : (
+              <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+                </svg>
+              </div>
+            )}
+
+            <h3 className="text-lg font-black text-slate-800 mb-1">{alertModal.title}</h3>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
+              {alertModal.message}
+            </p>
+
+            <button
+              type="button"
+              onClick={handleCloseAlertModal}
+              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-xs transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-red-600 hover:bg-red-700'
+                }`}
+            >
+              ตกลง
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

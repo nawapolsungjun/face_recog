@@ -14,6 +14,19 @@ export default function AdminCourseManagementPage() {
   const [showCreateConfirmModal, setShowCreateConfirmModal] = useState(false);
   const [courseToDelete, setCourseToDelete] = useState<{ id: string; name: string } | null>(null);
 
+  // State สำหรับ Custom Alert Modal
+  const [alertModal, setAlertModal] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    isSuccess?: boolean;
+  }>({
+    show: false,
+    title: '',
+    message: '',
+    isSuccess: true,
+  });
+
   const fetchInitialData = useCallback(async () => {
     setLoading(true);
     try {
@@ -37,7 +50,12 @@ export default function AdminCourseManagementPage() {
   const handleOpenCreateConfirm = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCourse.code.trim() || !newCourse.name.trim() || !newCourse.teacherId) {
-      alert('กรุณากรอกข้อมูลและเลือกอาจารย์ผู้สอนให้ครบถ้วน');
+      setAlertModal({
+        show: true,
+        title: 'ข้อมูลไม่ครบถ้วน',
+        message: 'กรุณากรอกข้อมูลและเลือกอาจารย์ผู้สอนให้ครบถ้วน',
+        isSuccess: false,
+      });
       return;
     }
     setShowCreateConfirmModal(true);
@@ -57,18 +75,33 @@ export default function AdminCourseManagementPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert('สร้างรายวิชาใหม่สำเร็จเรียบร้อย');
         setShowCreateConfirmModal(false);
         setIsModalOpen(false);
         setNewCourse({ code: '', name: '', teacherId: '' });
         fetchInitialData();
+        setAlertModal({
+          show: true,
+          title: 'สร้างรายวิชาสำเร็จ',
+          message: 'สร้างรายวิชาใหม่เรียบร้อยแล้ว',
+          isSuccess: true,
+        });
       } else {
-        alert(data.error || 'สร้างวิชาไม่สำเร็จ');
         setShowCreateConfirmModal(false);
+        setAlertModal({
+          show: true,
+          title: 'เกิดข้อผิดพลาด',
+          message: data.error || 'สร้างรายวิชาไม่สำเร็จ',
+          isSuccess: false,
+        });
       }
     } catch {
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
       setShowCreateConfirmModal(false);
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
+        isSuccess: false,
+      });
     } finally {
       setIsCreating(false);
     }
@@ -80,14 +113,29 @@ export default function AdminCourseManagementPage() {
       const res = await fetch(`/api/admin/courses?id=${courseToDelete.id}`, { method: 'DELETE' });
       const json = await res.json();
       if (json.success) {
-        alert('ลบรายวิชาเรียบร้อยแล้ว');
         setCourseToDelete(null);
         fetchInitialData();
+        setAlertModal({
+          show: true,
+          title: 'ลบรายวิชาสำเร็จ',
+          message: 'ลบรายวิชาออกจากระบบเรียบร้อยแล้ว',
+          isSuccess: true,
+        });
       } else {
-        alert(json.error || 'เกิดข้อผิดพลาดในการลบ');
+        setAlertModal({
+          show: true,
+          title: 'เกิดข้อผิดพลาด',
+          message: json.error || 'เกิดข้อผิดพลาดในการลบรายวิชา',
+          isSuccess: false,
+        });
       }
     } catch {
-      alert('การเชื่อมต่อฐานข้อมูลล้มเหลว');
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: 'การเชื่อมต่อฐานข้อมูลล้มเหลว',
+        isSuccess: false,
+      });
     }
   };
 
@@ -95,7 +143,7 @@ export default function AdminCourseManagementPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
-      
+
       {/* 1. Header ด้านบน */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
         <div className="absolute top-6 left-6">
@@ -107,10 +155,10 @@ export default function AdminCourseManagementPage() {
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
+          ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          สาขาวิชานวัตกรรมระบบสารสนเทศ
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
         </p>
       </header>
 
@@ -123,7 +171,7 @@ export default function AdminCourseManagementPage() {
 
       {/* 3. Main Content */}
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8">
-        
+
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h2 className="text-2xl font-black text-slate-800">รายวิชาในระบบ</h2>
@@ -131,8 +179,9 @@ export default function AdminCourseManagementPage() {
           </div>
 
           <button
+            type="button"
             onClick={() => setIsModalOpen(true)}
-            className="bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white px-5 py-2.5 rounded-xl font-bold text-xs md:text-sm shadow-sm transition-all cursor-pointer"
+            className="bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white px-5 py-2.5 rounded-xl font-bold text-xs md:text-sm shadow-xs transition-all cursor-pointer"
           >
             + สร้างรายวิชาใหม่
           </button>
@@ -148,7 +197,7 @@ export default function AdminCourseManagementPage() {
                   <th className="p-4 text-xs font-bold text-slate-600 w-32">รหัสวิชา</th>
                   <th className="p-4 text-xs font-bold text-slate-600">ชื่อรายวิชา</th>
                   <th className="p-4 text-xs font-bold text-slate-600">อาจารย์ผู้สอน</th>
-                  <th className="p-4 text-xs font-bold text-slate-600 text-center w-56">การจัดการ</th>
+                  <th className="p-4 text-xs font-bold text-slate-600 text-center w-40">จัดการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -169,44 +218,56 @@ export default function AdminCourseManagementPage() {
                       {course.courseCode}
                     </td>
                     <td className="p-4">
-                      <Link 
-                        href={`/admin/courses/${course.id}/students`} 
+                      <Link
+                        href={`/admin/courses/${course.id}/students`}
                         className="font-bold text-slate-800 hover:text-emerald-700 transition-colors text-xs md:text-sm inline-block"
                       >
                         {course.courseName}
                       </Link>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
+                      <div className="text-[11px] text-slate-400 mt-0.5 font-medium">
                         นักศึกษาในชั้นเรียน: {course._count?.students || 0} คน
                       </div>
                     </td>
                     <td className="p-4 text-xs font-medium text-slate-700">
                       {course.teacherDisplayName || (
-                        <span className="text-amber-600 italic text-xs">ไม่พบผู้สอน / บัญชีถูกลบ</span>
+                        <span className="text-amber-700 italic text-xs">ไม่พบผู้สอน / บัญชีถูกลบ</span>
                       )}
                     </td>
                     <td className="p-4 text-center">
-                      <div className="flex justify-center items-center gap-1.5 flex-wrap">
-                        {/* ปุ่มดูรายชื่อ */}
+                      <div className="flex justify-center items-center gap-1.5">
+
+                        {/* 1. ปุ่มดูรายชื่อนักศึกษา (User Group Icon) */}
                         <Link
                           href={`/admin/courses/${course.id}/students`}
-                          className="text-emerald-700 bg-emerald-50 hover:bg-emerald-600 hover:text-white px-2.5 py-1.5 rounded-xl text-xs font-bold border border-emerald-200/60 transition-all whitespace-nowrap"
+                          title="จัดการรายชื่อนักศึกษา"
+                          className="p-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-700 hover:text-white rounded-xl border border-emerald-200/60 transition-all shadow-2xs"
                         >
-                          รายชื่อ
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                          </svg>
                         </Link>
 
-                        {/* ปุ่มดูรายงานเฉพาะวิชา */}
+                        {/* 2. ปุ่มดูรายงานการเข้าเรียน (Report / Chart Icon) */}
                         <Link
                           href={`/admin/reports/courses/${course.id}`}
-                          className="text-slate-600 bg-slate-50 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-slate-200/60 transition-all whitespace-nowrap"
+                          title="รายงานการเข้าเรียน"
+                          className="p-2 text-slate-700 bg-slate-100 hover:bg-slate-700 hover:text-white rounded-xl border border-slate-200/80 transition-all shadow-2xs"
                         >
-                          รายงาน
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
                         </Link>
 
+                        {/* 3. ปุ่มลบรายวิชา (Trash Can Icon) */}
                         <button
+                          type="button"
                           onClick={() => setCourseToDelete({ id: course.id, name: course.courseName })}
-                          className="text-red-600 bg-red-50 hover:bg-red-600 hover:text-white px-2.5 py-1.5 rounded-xl text-xs font-bold border border-red-200/60 transition-all whitespace-nowrap cursor-pointer"
+                          title="ลบรายวิชา"
+                          className="p-2 text-red-600 bg-red-50 hover:bg-red-600 hover:text-white rounded-xl border border-red-200/60 transition-all shadow-2xs cursor-pointer"
                         >
-                          ลบ
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
                         </button>
                       </div>
                     </td>
@@ -227,14 +288,17 @@ export default function AdminCourseManagementPage() {
       </main>
 
       {/* 4. Footer ด้านล่าง */}
-      <footer className="bg-white text-[#0f766e] py-4 px-4 text-center text-xs font-medium border-t border-slate-100 mt-auto">
-        ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
+        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
+        </p>
       </footer>
 
       {/* Modal สร้างรายวิชาใหม่ */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 md:p-8 shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 md:p-8 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
             <h2 className="text-xl font-black text-slate-800 mb-5">สร้างรายวิชาใหม่ (Admin)</h2>
 
             <form onSubmit={handleOpenCreateConfirm} className="space-y-4">
@@ -263,7 +327,7 @@ export default function AdminCourseManagementPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-emerald-700 mb-1">อาจารย์ผู้สอนรายวิชา</label>
+                <label className="block text-xs font-bold text-emerald-800 mb-1">อาจารย์ผู้สอนรายวิชา</label>
                 <select
                   required
                   value={newCourse.teacherId}
@@ -283,13 +347,13 @@ export default function AdminCourseManagementPage() {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 text-xs rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer transition-all"
+                  className="flex-1 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer transition-all"
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="submit"
-                  className="flex-[2] py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-sm transition-all active:scale-[0.99] cursor-pointer"
+                  className="flex-[2] py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs shadow-xs transition-all active:scale-[0.99] cursor-pointer"
                 >
                   ตกลงสร้างวิชา
                 </button>
@@ -302,11 +366,7 @@ export default function AdminCourseManagementPage() {
       {/* Modal Popup: ยืนยันการสร้างรายวิชา */}
       {showCreateConfirmModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
-            <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
-              ✓
-            </div>
-
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <h3 className="text-xl font-black text-slate-800">ยืนยันการสร้างรายวิชา</h3>
             <p className="text-xs text-slate-400 mt-1">
               กรุณาตรวจสอบความถูกต้องของข้อมูลรายวิชา
@@ -332,7 +392,7 @@ export default function AdminCourseManagementPage() {
                 type="button"
                 disabled={isCreating}
                 onClick={() => setShowCreateConfirmModal(false)}
-                className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 text-xs rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer"
+                className="flex-1 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer"
               >
                 แก้ไข
               </button>
@@ -340,7 +400,7 @@ export default function AdminCourseManagementPage() {
                 type="button"
                 disabled={isCreating}
                 onClick={handleConfirmCreateCourse}
-                className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
+                className="flex-[2] bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
               >
                 {isCreating ? 'กำลังสร้าง...' : 'ยืนยันสร้างวิชา'}
               </button>
@@ -352,29 +412,25 @@ export default function AdminCourseManagementPage() {
       {/* Modal Popup: ยืนยันการลบรายวิชา */}
       {courseToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
-            <div className="w-12 h-12 bg-red-50 text-red-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
-              !
-            </div>
-
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <h3 className="text-xl font-black text-slate-800">ยืนยันการลบรายวิชา</h3>
             <p className="text-xs text-slate-500 mt-2">
               คุณต้องการลบวิชา <span className="font-bold text-slate-800">{courseToDelete.name}</span> หรือไม่? <br />
-              <span className="text-red-500 font-bold mt-1 inline-block">ข้อมูลการเช็คชื่อและนักศึกษาในวิชานี้จะถูกลบถาวร</span>
+              <span className="text-red-600 font-bold mt-1 inline-block">ข้อมูลการเช็คชื่อและนักศึกษาในวิชานี้จะถูกลบถาวร</span>
             </p>
 
             <div className="flex gap-3 mt-6">
               <button
                 type="button"
                 onClick={() => setCourseToDelete(null)}
-                className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 text-xs rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer"
+                className="flex-1 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer"
               >
                 ยกเลิก
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDeleteCourse}
-                className="flex-[2] bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                className="flex-[2] bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
               >
                 ลบรายวิชา
               </button>
@@ -382,6 +438,42 @@ export default function AdminCourseManagementPage() {
           </div>
         </div>
       )}
+
+      {/* Custom Alert Modal */}
+      {alertModal.show && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
+            {alertModal.isSuccess ? (
+              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+            ) : (
+              <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+                </svg>
+              </div>
+            )}
+
+            <h3 className="text-lg font-black text-slate-800 mb-1">{alertModal.title}</h3>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
+              {alertModal.message}
+            </p>
+
+            <button
+              type="button"
+              onClick={() => setAlertModal({ show: false, title: '', message: '', isSuccess: true })}
+              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-xs transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-red-600 hover:bg-red-700'
+                }`}
+            >
+              ตกลง
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

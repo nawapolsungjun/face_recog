@@ -17,21 +17,44 @@ export default function RegisterUserPage() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // เปิด Popup ยืนยันข้อมูล
+  // State สำหรับ Custom Alert / Success Popup
+  const [alertModal, setAlertModal] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    isSuccess?: boolean;
+  }>({
+    show: false,
+    title: '',
+    message: '',
+    isSuccess: false,
+  });
+
+  // เปิด Popup ตรวจสอบข้อมูลก่อนส่ง
   const handleOpenConfirm = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || !formData.password.trim()) {
-      alert('กรุณากรอกข้อมูลให้ครบถ้วน');
+      setAlertModal({
+        show: true,
+        title: 'ข้อมูลไม่ครบถ้วน',
+        message: 'กรุณากรอกข้อมูลให้ครบทุกช่องก่อนดำเนินการ',
+        isSuccess: false,
+      });
       return;
     }
     if (formData.role === 'STUDENT' && !formData.studentCode.trim()) {
-      alert('กรุณาระบุรหัสนักศึกษา');
+      setAlertModal({
+        show: true,
+        title: 'ข้อมูลไม่ครบถ้วน',
+        message: 'กรุณาระบุรหัสนักศึกษาสำหรับบัญชีนักเรียน',
+        isSuccess: false,
+      });
       return;
     }
     setShowConfirmModal(true);
   };
 
-  // ส่งข้อมูลลงทะเบียนทีละคน
+  // ส่งข้อมูลลงทะเบียนผู้ใช้ใหม่
   const handleConfirmSubmit = async () => {
     setLoading(true);
 
@@ -51,17 +74,39 @@ export default function RegisterUserPage() {
 
       if (data.success) {
         setShowConfirmModal(false);
-        alert('ลงทะเบียนผู้ใช้ใหม่สำเร็จเรียบร้อย');
-        router.push('/admin/users');
+        setAlertModal({
+          show: true,
+          title: 'ลงทะเบียนสำเร็จเรียบร้อย',
+          message: `สร้างบัญชีสำหรับ ${formData.firstName} ${formData.lastName} เรียบร้อยแล้ว`,
+          isSuccess: true,
+        });
       } else {
-        alert('เกิดข้อผิดพลาด: ' + data.error);
         setShowConfirmModal(false);
+        setAlertModal({
+          show: true,
+          title: 'เกิดข้อผิดพลาด',
+          message: data.error || 'ไม่สามารถลงทะเบียนผู้ใช้ใหม่ได้',
+          isSuccess: false,
+        });
       }
     } catch {
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
       setShowConfirmModal(false);
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้',
+        isSuccess: false,
+      });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCloseAlertModal = () => {
+    const wasSuccess = alertModal.isSuccess;
+    setAlertModal({ show: false, title: '', message: '', isSuccess: false });
+    if (wasSuccess) {
+      router.push('/admin/users/register');
     }
   };
 
@@ -79,10 +124,10 @@ export default function RegisterUserPage() {
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
+          ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          สาขาวิชานวัตกรรมระบบสารสนเทศ
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
         </p>
       </header>
 
@@ -211,7 +256,7 @@ export default function RegisterUserPage() {
         ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
       </footer>
 
-      {/* Modal Popup ตรวจสอบและยืนยันข้อมูล */}
+      {/* 3. Modal Popup ตรวจสอบและยืนยันข้อมูลผู้ใช้ */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200">
@@ -270,6 +315,43 @@ export default function RegisterUserPage() {
           </div>
         </div>
       )}
+
+      {/* 4. Custom Modal: แจ้งเตือนสำเร็จ / ข้อผิดพลาด */}
+      {alertModal.show && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
+            {/* ไอคอนแสดงสถานะ */}
+            {alertModal.isSuccess ? (
+              <div className="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-5">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+            ) : (
+              <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-5">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+                </svg>
+              </div>
+            )}
+
+            <h3 className="text-xl font-black text-slate-800 mb-1.5">{alertModal.title}</h3>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
+              {alertModal.message}
+            </p>
+
+            <button
+              type="button"
+              onClick={handleCloseAlertModal}
+              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? 'bg-[#16a34a] hover:bg-[#15803d]' : 'bg-[#dc2626] hover:bg-[#b91c1c]'
+                }`}
+            >
+              ตกลง
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

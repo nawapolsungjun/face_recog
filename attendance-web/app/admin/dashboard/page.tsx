@@ -28,25 +28,28 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
       
-      {/* 1. Header ด้านบนตาม Style Canva (หัวข้อตรงกลาง 100%) */}
+      {/* 1. Header ด้านบน (หัวข้อตรงกลาง) */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
         <div className="absolute top-6 right-6">
           <Link 
             href="/login" 
-            className="bg-red-500/80 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1"
+            className="bg-red-600/80 hover:bg-red-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1.5 shadow-xs"
           >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
             ออกจากระบบ
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
+          ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          แผงควบคุมผู้ดูแลระบบ (Admin Control Panel) - สาขาวิชานวัตกรรมระบบสารสนเทศ
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
         </p>
       </header>
 
-      {/* 3. Main Content */}
+      {/* 2. Main Content */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
         
         {/* การ์ดต้อนรับ */}
@@ -114,7 +117,9 @@ export default function AdminDashboard() {
           <section className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80">
             <div className="flex items-center gap-3 mb-5 pb-3 border-b border-slate-100">
               <span className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 font-bold flex items-center justify-center text-sm border border-emerald-100">
-                👤
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
               </span>
               <h3 className="text-lg font-black text-slate-800">จัดการบัญชีผู้ใช้</h3>
             </div>
@@ -140,7 +145,9 @@ export default function AdminDashboard() {
           <section className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80">
             <div className="flex items-center gap-3 mb-5 pb-3 border-b border-slate-100">
               <span className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 font-bold flex items-center justify-center text-sm border border-emerald-100">
-                📊
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
               </span>
               <h3 className="text-lg font-black text-slate-800">รายงานและภาพรวม</h3>
             </div>
@@ -158,9 +165,12 @@ export default function AdminDashboard() {
         </div>
       </main>
 
-      {/* 4. Footer ด้านล่าง */}
-      <footer className="bg-white text-[#0f766e] py-4 px-4 text-center text-xs font-medium border-t border-slate-100 mt-auto">
-        ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+      {/* 3. Footer ด้านล่าง */}
+     <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
+        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
+        </p>
       </footer>
 
     </div>

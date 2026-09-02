@@ -30,7 +30,7 @@ export default function AdminCourseHistoryPage() {
       }
 
       // 2. ดึงประวัติรอบการเช็คชื่อ
-      const url = filterDateParam 
+      const url = filterDateParam
         ? `/api/attendance/history/${courseId}?date=${filterDateParam}`
         : `/api/attendance/history/${courseId}`;
 
@@ -69,10 +69,10 @@ export default function AdminCourseHistoryPage() {
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบเช็คชื่อนักเรียน (ผู้ดูแลระบบ)
+          ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          วิชา: <span className="font-bold text-white">{courseInfo?.courseName || 'กำลังโหลด...'}</span> {courseInfo?.courseCode ? `(${courseInfo.courseCode})` : ''}
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
         </p>
       </header>
 
@@ -81,10 +81,10 @@ export default function AdminCourseHistoryPage() {
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 mb-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
             <div>
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">ประวัติการบันทึก (โหมดผู้ดูแลระบบ)</span>
-              <h2 className="text-xl font-black text-slate-800">
-                รายการเช็คชื่อย้อนหลังตามรอบ
-              </h2>
+              <span className="text-[18px] font-bold text-slate-400">ประวัติการบันทึก</span>
+              <p className="text-xl font-black text-slate-800">
+                วิชา: <span className="text-xl font-black text-slate-800">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName ? `${courseInfo.courseName}` : ''}
+              </p>
               {filterDateParam && (
                 <p className="text-xs text-slate-500 font-bold mt-0.5">
                   กรองเฉพาะวันที่: <span className="text-emerald-700 font-mono">{filterDateParam}</span>
@@ -103,7 +103,7 @@ export default function AdminCourseHistoryPage() {
 
         {/* Sessions Card Grid */}
         {loading ? (
-          <div className="p-16 text-center text-slate-400 font-bold animate-pulse text-xs">
+          <div className="p-16 text-center text-slate-400 font-bold animate-pulse text-xs bg-white rounded-2xl border border-slate-200/80">
             กำลังโหลดประวัติการบันทึก...
           </div>
         ) : sessions.length > 0 ? (
@@ -115,22 +115,25 @@ export default function AdminCourseHistoryPage() {
               const timeFormatted = session.createdAt
                 ? new Date(session.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false })
                 : '-';
-              
-              const imgList = session.imageUrl ? session.imageUrl.split(',') : [];
+
+              const imgList = session.imageUrl
+                ? session.imageUrl.split(',').filter((url: string) => url.trim() !== '')
+                : [];
               const firstImg = imgList[0] || null;
+              const roundNum = session.roundNumber || session.round || (sessions.length - idx);
 
               return (
                 <div
                   key={session.id || idx}
-                  className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+                  className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm hover:border-emerald-500/50 hover:shadow-md transition-all flex flex-col justify-between"
                 >
                   <div>
                     <div className="flex justify-between items-center mb-3">
-                      <span className="text-xs font-black text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg">
-                        ครั้งที่ {session.roundNumber || idx + 1}
+                      <span className="bg-emerald-50 text-emerald-700 font-bold px-3 py-1 rounded-xl text-xs border border-emerald-100">
+                        ครั้งที่ {roundNum}
                       </span>
                       <span className="text-xs text-slate-400 font-mono font-bold">
-                        {dateFormatted} {timeFormatted}
+                        {dateFormatted} {timeFormatted} น.
                       </span>
                     </div>
 
@@ -139,23 +142,23 @@ export default function AdminCourseHistoryPage() {
                         <>
                           <img src={firstImg} alt="Session Image" className="w-full h-full object-cover" />
                           {imgList.length > 1 && (
-                            <span className="absolute bottom-2 right-2 bg-slate-900/80 text-white text-[10px] font-bold px-2 py-1 rounded-md">
+                            <span className="absolute bottom-2 right-2 bg-slate-900/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-sm">
                               +{imgList.length - 1} รูปเพิ่ม
                             </span>
                           )}
                         </>
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-slate-400 font-bold text-xs">
+                        <div className="w-full h-full flex items-center justify-center text-slate-400 font-bold text-xs bg-slate-50">
                           ไม่มีรูปภาพ
                         </div>
                       )}
                     </div>
 
-                    <p className="text-xs text-slate-600 font-medium mb-1">
-                      จำนวนรายการเช็คชื่อ: <span className="font-bold text-slate-800">{session.attendances?.length || 0} คน</span>
+                    <p className="text-xs text-slate-600 font-bold mb-1">
+                      จำนวนรายการเช็คชื่อ: <span className="text-emerald-700 font-black">{session.attendances?.length || session.records?.length || session.totalChecked || 0}</span> คน
                     </p>
                     {session.note && (
-                      <p className="text-[11px] text-slate-400 italic mb-4">
+                      <p className="text-[11px] text-slate-400 italic mb-4 line-clamp-1">
                         {session.note}
                       </p>
                     )}
@@ -163,8 +166,8 @@ export default function AdminCourseHistoryPage() {
 
                   <button
                     type="button"
-                    onClick={() => setSelectedSessionDetail(session)}
-                    className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer"
+                    onClick={() => setSelectedSessionDetail({ ...session, roundNumber: roundNum })}
+                    className="w-full mt-3 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer"
                   >
                     ดูรายละเอียดรอบนี้
                   </button>
@@ -179,45 +182,115 @@ export default function AdminCourseHistoryPage() {
         )}
       </main>
 
-      {/* Modal ย่อย: ดูรายชื่อนักศึกษาในรอบนั้น */}
+      {/* 4. Footer */}
+      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
+        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
+        </p>
+      </footer>
+
+      {/* Modal แสดงรายละเอียดการเช็คชื่อ (UI เดียวกันกับหน้าอาจารย์) */}
       {selectedSessionDetail && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-xl border border-slate-100 max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200">
-            <h4 className="text-base font-black text-slate-800 mb-1">
-              รายละเอียดการเช็คชื่อ ครั้งที่ {selectedSessionDetail.roundNumber}
-            </h4>
-            <p className="text-xs text-slate-400 mb-4">
-              เวลาบันทึก: {new Date(selectedSessionDetail.createdAt).toLocaleTimeString('th-TH')} น.
-            </p>
-
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              {selectedSessionDetail.attendances?.map((att: any, i: number) => (
-                <div key={i} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl text-xs">
-                  <div>
-                    <span className="font-mono font-bold text-emerald-700 mr-2">{att.student?.studentCode}</span>
-                    <span className="font-bold text-slate-700">{att.student?.name}</span>
-                    {att.remark && <div className="text-[10px] text-slate-400 mt-0.5">{att.remark}</div>}
-                  </div>
-                  <span className={`px-2.5 py-1 rounded-lg font-bold text-[11px] ${
-                    att.status === 'มาเรียน' ? 'bg-emerald-100 text-emerald-800' :
-                    att.status === 'มาสาย' ? 'bg-amber-100 text-amber-800' :
-                    att.status === 'ลา' ? 'bg-blue-100 text-blue-800' :
-                    'bg-red-100 text-red-800'
-                  }`}>
-                    {att.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div className="pt-4 mt-2 border-t border-slate-100 flex justify-end">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+            
+            {/* Header ของ Modal */}
+            <div className="flex justify-between items-center mb-5 border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-black text-lg text-slate-800">
+                  รายละเอียดการเช็คชื่อ ครั้งที่ {selectedSessionDetail.roundNumber}
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  เวลาบันทึก: {new Date(selectedSessionDetail.createdAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'medium' })} น.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setSelectedSessionDetail(null)}
-                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer transition-all"
+                className="text-slate-400 hover:text-slate-700 font-bold text-2xl cursor-pointer p-1"
               >
-                ปิดหน้าต่าง
+                &times;
               </button>
+            </div>
+
+            {/* แสดงรูปภาพประกอบถ้ามี */}
+            {selectedSessionDetail.imageUrl && (
+              <div className="mb-6">
+                <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">
+                  รูปภาพประกอบการเช็คชื่อ
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {selectedSessionDetail.imageUrl
+                    .split(',')
+                    .filter((url: string) => url.trim() !== '')
+                    .map((imgUrl: string, idx: number) => (
+                      <div
+                        key={idx}
+                        className="rounded-xl overflow-hidden border border-slate-200/60 bg-slate-900 h-44"
+                      >
+                        <img
+                          src={imgUrl.trim()}
+                          alt={`รูปถ่ายการเช็คชื่อ #${idx + 1}`}
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {/* รายการรายชื่อนักศึกษา */}
+            <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-2xl overflow-hidden mb-5">
+              {(selectedSessionDetail.attendances || selectedSessionDetail.records) &&
+              (selectedSessionDetail.attendances?.length > 0 || selectedSessionDetail.records?.length > 0) ? (
+                (selectedSessionDetail.attendances || selectedSessionDetail.records).map((att: any, idx: number) => {
+                  const studentName =
+                    att.student?.name ||
+                    `${att.student?.firstName || ''} ${att.student?.lastName || ''}`.trim() ||
+                    att.name ||
+                    'ไม่ระบุชื่อ';
+                  const studentCode = att.student?.studentCode || att.studentCode || '-';
+
+                  return (
+                    <div
+                      key={att.id || idx}
+                      className="p-3.5 flex justify-between items-center bg-white hover:bg-slate-50 transition-colors"
+                    >
+                      <div>
+                        <p className="font-mono text-xs font-bold text-emerald-700">
+                          {studentCode}
+                        </p>
+                        <p className="font-bold text-xs md:text-sm text-slate-800">
+                          {studentName}
+                        </p>
+                        {att.remark && (
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            {att.remark}
+                          </p>
+                        )}
+                      </div>
+                      <span
+                        className={`text-xs font-bold px-3 py-1 rounded-xl border shrink-0 ${
+                          att.status === 'มาเรียน'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : att.status === 'มาสาย'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : att.status === 'ลา'
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : 'bg-red-50 text-red-700 border-red-200'
+                        }`}
+                      >
+                        {att.status}
+                      </span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-8 text-center text-slate-400 font-bold text-xs">
+                  ไม่มีรายการเช็คชื่อรายบุคคลในรอบนี้
+                </div>
+              )}
             </div>
           </div>
         </div>

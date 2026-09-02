@@ -30,13 +30,32 @@ export default function ReEnrollPage() {
   const [capturedVectors, setCapturedVectors] = useState<any[]>([]);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
+  // State สำหรับ Custom Alert / Success Popup (แทนที่ alert ดั้งเดิม)
+  const [alertModal, setAlertModal] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    isSuccess?: boolean;
+    onClose?: () => void;
+  }>({
+    show: false,
+    title: '',
+    message: '',
+    isSuccess: true,
+  });
+
   useEffect(() => {
     const savedUser = localStorage.getItem('student_user');
     const token = localStorage.getItem('student_token');
 
     if (!savedUser) {
-      alert('ไม่พบเซสชัน กรุณาเข้าสู่ระบบใหม่');
-      router.push('/student/login');
+      setAlertModal({
+        show: true,
+        title: 'ไม่พบเซสชัน',
+        message: 'กรุณาเข้าสู่ระบบใหม่ก่อนทำรายการ',
+        isSuccess: false,
+        onClose: () => router.push('/student/login'),
+      });
       return;
     }
 
@@ -44,7 +63,7 @@ export default function ReEnrollPage() {
     const initialName = `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.name || userData.displayName || 'นักศึกษา';
 
     setUser({ ...userData, displayName: initialName });
-    setStatus(`คุณ ${initialName} สามารถอัปเดตใบหน้าใหม่ได้ที่นี่`);
+    setStatus(`${initialName} สามารถอัปเดตใบหน้าใหม่ได้ที่นี่`);
 
     const fetchLatestProfile = async () => {
       try {
@@ -59,7 +78,7 @@ export default function ReEnrollPage() {
             ...resJson.data,
             displayName: freshName,
           }));
-          setStatus(`คุณ ${freshName} สามารถอัปเดตใบหน้าใหม่ได้ที่นี่`);
+          setStatus(`${freshName} สามารถอัปเดตใบหน้าใหม่ได้ที่นี่`);
         }
       } catch (err) {
         console.error('Failed to load profile:', err);
@@ -73,7 +92,12 @@ export default function ReEnrollPage() {
     if (e.target.files) {
       const selectedFiles = e.target.files;
       if (selectedFiles.length < 3) {
-        alert('เพื่อความแม่นยำ กรุณาเลือกอัปโหลดอย่างน้อย 3 รูปขึ้นไป');
+        setAlertModal({
+          show: true,
+          title: 'คำแนะนำการอัปโหลด',
+          message: 'เพื่อความแม่นยำ กรุณาเลือกอัปโหลดอย่างน้อย 3 รูปขึ้นไป',
+          isSuccess: false,
+        });
       }
       setFiles(selectedFiles);
       const fileArray = Array.from(selectedFiles).map(file => URL.createObjectURL(file));
@@ -111,10 +135,20 @@ export default function ReEnrollPage() {
             setStatus(`บันทึกสำเร็จ (${newProgress}%) กรุณา${SCAN_STEPS[nextIndex].label}`);
           }
         } else {
-          alert(`ตรวจไม่พบใบหน้า: ${data.error}`);
+          setAlertModal({
+            show: true,
+            title: 'ตรวจไม่พบใบหน้า',
+            message: data.error || 'กรุณาจัดตำแหน่งใบหน้าให้อยู่ในกรอบ',
+            isSuccess: false,
+          });
         }
       } catch {
-        alert('ไม่สามารถติดต่อระบบประมวลผลใบหน้า (Python AI) ได้');
+        setAlertModal({
+          show: true,
+          title: 'เกิดข้อผิดพลาด',
+          message: 'ไม่สามารถติดต่อระบบประมวลผลใบหน้า (Python AI) ได้',
+          isSuccess: false,
+        });
       }
     }
     setIsLoading(false);
@@ -122,11 +156,21 @@ export default function ReEnrollPage() {
 
   const handleOpenConfirm = () => {
     if (regMode === 'upload' && (!files || files.length < 3)) {
-      alert('กรุณาเลือกรูปภาพอย่างน้อย 3 รูปขึ้นไป');
+      setAlertModal({
+        show: true,
+        title: 'ข้อมูลไม่ครบถ้วน',
+        message: 'กรุณาเลือกรูปภาพอย่างน้อย 3 รูปขึ้นไป',
+        isSuccess: false,
+      });
       return;
     }
     if (regMode === 'scan' && scanProgress < 60) {
-      alert('กรุณาสแกนใบหน้าอย่างน้อย 3 มุมขึ้นไป (60%)');
+      setAlertModal({
+        show: true,
+        title: 'สแกนยังไม่ครบถ้วน',
+        message: 'กรุณาสแกนใบหน้าอย่างน้อย 3 มุมขึ้นไป (60%)',
+        isSuccess: false,
+      });
       return;
     }
     setShowConfirmModal(true);
@@ -181,16 +225,34 @@ export default function ReEnrollPage() {
       const dbResult = await dbResponse.json();
       if (dbResult.success) {
         setStatus('อัปเดตใบหน้าสำเร็จแล้ว');
-        alert('อัปเดตข้อมูลใบหน้าเรียบร้อย');
-        router.replace('/student/dashboard');
+        setAlertModal({
+          show: true,
+          title: 'อัปเดตข้อมูลสำเร็จ',
+          message: 'อัปเดตข้อมูลใบหน้าเรียบร้อย ระบบจะพาคุณไปที่ Dashboard',
+          isSuccess: true,
+          onClose: () => router.replace('/student/dashboard'),
+        });
       } else {
         throw new Error(dbResult.error);
       }
     } catch (err: any) {
       setStatus(`ข้อผิดพลาด: ${err.message}`);
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: err.message || 'ไม่สามารถอัปเดตใบหน้าได้',
+        isSuccess: false,
+      });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleCloseAlertModal = () => {
+    if (alertModal.onClose) {
+      alertModal.onClose();
+    }
+    setAlertModal({ show: false, title: '', message: '', isSuccess: true });
   };
 
   const handleReset = () => {
@@ -205,7 +267,7 @@ export default function ReEnrollPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
 
-      {/* 1. Header ด้านบนตาม Style Canva (หัวข้อตรงกลาง 100%) */}
+      {/* 1. Header ด้านบนตาม Style Canva */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
         <div className="absolute top-6 left-6">
           <Link
@@ -216,7 +278,7 @@ export default function ReEnrollPage() {
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบเช็คชื่อนักเรียน
+          ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
           อัปเดตข้อมูลใบหน้า: <span className="font-bold text-white">{user?.displayName || 'กำลังโหลด...'}</span> {user?.studentCode ? `(${user.studentCode})` : ''}
@@ -351,8 +413,8 @@ export default function ReEnrollPage() {
 
           {status && (
             <div className={`p-3 rounded-xl text-center text-xs font-bold mt-4 border ${status.includes('ข้อผิดพลาด')
-                ? 'bg-red-50 text-red-600 border-red-100'
-                : 'bg-emerald-50/60 text-emerald-700 border-emerald-100'
+              ? 'bg-red-50 text-red-600 border-red-100'
+              : 'bg-emerald-50/60 text-emerald-700 border-emerald-100'
               }`}>
               {status}
             </div>
@@ -361,8 +423,11 @@ export default function ReEnrollPage() {
       </main>
 
       {/* 4. Footer ด้านล่าง */}
-      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium mt-auto">
-        © 2026 ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
+        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
+        </p>
       </footer>
 
       {/* Modal ป๊อบอัปยืนยันการอัปเดตใบหน้า */}
@@ -411,6 +476,42 @@ export default function ReEnrollPage() {
           </div>
         </div>
       )}
+
+      {/* Custom Modal: แจ้งเตือนสำเร็จ / ข้อผิดพลาด */}
+      {alertModal.show && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
+            {alertModal.isSuccess ? (
+              <div className="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-5">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+            ) : (
+              <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-5">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+                </svg>
+              </div>
+            )}
+
+            <h3 className="text-xl font-black text-slate-800 mb-1.5">{alertModal.title}</h3>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
+              {alertModal.message}
+            </p>
+
+            <button
+              type="button"
+              onClick={handleCloseAlertModal}
+              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? 'bg-[#16a34a] hover:bg-[#15803d]' : 'bg-[#dc2626] hover:bg-[#b91c1c]'
+                }`}
+            >
+              ตกลง
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -3,6 +3,8 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+export const dynamic = 'force-dynamic';
+
 export default function StudentListPage() {
   const params = useParams();
   const router = useRouter();
@@ -10,8 +12,9 @@ export default function StudentListPage() {
   const [course, setCourse] = useState<any>(null);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
+  // State สำหรับ Modal รายงานประวัตินักศึกษา
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   // State สำหรับจัดการการแก้ไขข้อมูลวิชา
   const [isSettingOpen, setIsSettingOpen] = useState(false);
@@ -37,9 +40,22 @@ export default function StudentListPage() {
   const [showDeleteCourseModal, setShowDeleteCourseModal] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<{ id: any; name: string } | null>(null);
 
+  // State สำหรับ Custom Alert Modal
+  const [alertModal, setAlertModal] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    isSuccess?: boolean;
+    onClose?: () => void;
+  }>({
+    show: false,
+    title: '',
+    message: '',
+    isSuccess: true,
+  });
+
   const getAuthToken = () => localStorage.getItem('teacher_token') || localStorage.getItem('token');
 
-  // 1. ดึงข้อมูลรายวิชา + นักศึกษาทั้งหมดในระบบ
   const fetchCourseData = useCallback(async () => {
     const token = getAuthToken();
     try {
@@ -58,13 +74,15 @@ export default function StudentListPage() {
         setEditData({ courseName: json.data.courseName, courseCode: json.data.courseCode });
         setIsDirty(false);
 
-        if (selectedStudent) {
-          const updatedStudent = json.data.students.find((s: any) => s.id === selectedStudent.id);
+        setSelectedStudent((currentSelected: any) => {
+          if (!currentSelected) return null;
+          const updatedStudent = json.data.students.find((s: any) => s.id === currentSelected.id);
           if (updatedStudent) {
             const freshName = `${updatedStudent.firstName || ''} ${updatedStudent.lastName || ''}`.trim() || updatedStudent.name || 'ไม่ระบุชื่อ';
-            setSelectedStudent({ ...updatedStudent, displayName: freshName });
+            return { ...updatedStudent, displayName: freshName };
           }
-        }
+          return currentSelected;
+        });
       } else {
         if (resCourse.status === 401) router.push('/login');
       }
@@ -78,13 +96,12 @@ export default function StudentListPage() {
     } catch (err) {
       console.error("Fetch error:", err);
     }
-  }, [courseId, router, selectedStudent]);
+  }, [courseId, router]);
 
   useEffect(() => {
     if (courseId) fetchCourseData();
   }, [courseId, fetchCourseData]);
 
-  // ปิด Dropdown เมื่อคลิกนอกพื้นที่
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (selectBoxRef.current && !selectBoxRef.current.contains(event.target as Node)) {
@@ -100,10 +117,14 @@ export default function StudentListPage() {
     setIsDirty(true);
   };
 
-  // 2. ฟังก์ชันเพิ่มนักศึกษาเข้าสู่รายวิชานี้
   const handleAddStudentToCourse = async () => {
     if (!selectedStudentId && !selectedStudentCode) {
-      alert('กรุณาเลือกนักศึกษาที่ต้องการเพิ่ม');
+      setAlertModal({
+        show: true,
+        title: 'ข้อมูลไม่ครบถ้วน',
+        message: 'กรุณาเลือกนักศึกษาที่ต้องการเพิ่มเข้าชั้นเรียน',
+        isSuccess: false,
+      });
       return;
     }
 
@@ -116,31 +137,44 @@ export default function StudentListPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           studentId: selectedStudentId,
-          studentCode: selectedStudentCode 
+          studentCode: selectedStudentCode
         })
       });
 
       const json = await res.json();
       if (json.success) {
-        alert('เพิ่มนักศึกษาเข้าชั้นเรียนสำเร็จ');
         setSelectedStudentId('');
         setSelectedStudentCode('');
         setSearchQuery('');
         fetchCourseData();
+        setAlertModal({
+          show: true,
+          title: 'เพิ่มนักศึกษาสำเร็จ',
+          message: 'เพิ่มนักศึกษาเข้าชั้นเรียนเรียบร้อยแล้ว',
+          isSuccess: true,
+        });
       } else {
-        alert('เกิดข้อผิดพลาด: ' + (json.error || 'ไม่สามารถเพิ่มนักศึกษาได้'));
+        setAlertModal({
+          show: true,
+          title: 'เกิดข้อผิดพลาด',
+          message: json.error || 'ไม่สามารถเพิ่มนักศึกษาได้',
+          isSuccess: false,
+        });
       }
-    } catch (err) {
-      console.error(err);
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+    } catch {
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
+        isSuccess: false,
+      });
     } finally {
       setIsAdding(false);
     }
   };
 
-  // ยืนยันแก้ไขข้อมูลวิชา
   const handleConfirmUpdateCourse = async () => {
     const token = getAuthToken();
     try {
@@ -155,17 +189,31 @@ export default function StudentListPage() {
       if (res.ok) {
         setShowUpdateCourseModal(false);
         setIsSettingOpen(false);
-        alert('บันทึกการเปลี่ยนแปลงเรียบร้อยแล้ว');
         fetchCourseData();
+        setAlertModal({
+          show: true,
+          title: 'แก้ไขข้อมูลเรียบร้อย',
+          message: 'บันทึกการเปลี่ยนแปลงข้อมูลรายวิชาเรียบร้อยแล้ว',
+          isSuccess: true,
+        });
       } else {
-        alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+        setAlertModal({
+          show: true,
+          title: 'เกิดข้อผิดพลาด',
+          message: 'เกิดข้อผิดพลาดในการบันทึกข้อมูลรายวิชา',
+          isSuccess: false,
+        });
       }
     } catch {
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ',
+        isSuccess: false,
+      });
     }
   };
 
-  // ยืนยันจัดเก็บรายวิชา (Archive)
   const handleConfirmArchiveCourse = async () => {
     const token = getAuthToken();
     try {
@@ -181,14 +229,25 @@ export default function StudentListPage() {
         setShowArchiveCourseModal(false);
         router.push('/teacher/dashboard');
       } else {
-        alert('ไม่สามารถจัดเก็บรายวิชาได้');
+        setShowArchiveCourseModal(false);
+        setAlertModal({
+          show: true,
+          title: 'เกิดข้อผิดพลาด',
+          message: 'ไม่สามารถจัดเก็บรายวิชาได้',
+          isSuccess: false,
+        });
       }
     } catch {
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+      setShowArchiveCourseModal(false);
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ',
+        isSuccess: false,
+      });
     }
   };
 
-  // ยืนยันลบรายวิชาถาวร
   const handleConfirmDeleteCourse = async () => {
     const token = getAuthToken();
     try {
@@ -199,30 +258,26 @@ export default function StudentListPage() {
       if (res.ok) {
         setShowDeleteCourseModal(false);
         router.push('/teacher/dashboard');
+      } else {
+        setShowDeleteCourseModal(false);
+        setAlertModal({
+          show: true,
+          title: 'เกิดข้อผิดพลาด',
+          message: 'ไม่สามารถลบรายวิชาได้',
+          isSuccess: false,
+        });
       }
     } catch {
-      alert('ไม่สามารถลบวิชาได้');
-    }
-  };
-
-  const handleStatusChange = async (attendanceId: number, newStatus: string) => {
-    const token = getAuthToken();
-    try {
-      const res = await fetch(`/api/attendance/${attendanceId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ status: newStatus })
+      setShowDeleteCourseModal(false);
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ',
+        isSuccess: false,
       });
-      if (res.ok) fetchCourseData();
-    } catch {
-      alert('ไม่สามารถอัปเดตสถานะได้');
     }
   };
 
-  // ยืนยันลบนักศึกษาออกจากวิชา
   const handleConfirmDeleteStudent = async () => {
     if (!studentToDelete) return;
     const idToDelete = String(studentToDelete.id);
@@ -240,20 +295,42 @@ export default function StudentListPage() {
           ...prev,
           students: prev.students.filter((s: any) => String(s.id) !== idToDelete)
         }));
-        if (selectedStudent?.id === studentToDelete.id) setIsDrawerOpen(false);
+        if (selectedStudent?.id === studentToDelete.id) setIsReportModalOpen(false);
         setStudentToDelete(null);
+        setAlertModal({
+          show: true,
+          title: 'ลบข้อมูลสำเร็จ',
+          message: 'นำนักศึกษาออกจากรายวิชาเรียบร้อยแล้ว',
+          isSuccess: true,
+        });
       } else {
-        alert(`ลบไม่สำเร็จ: ${data.error}`);
+        setAlertModal({
+          show: true,
+          title: 'เกิดข้อผิดพลาด',
+          message: `ลบไม่สำเร็จ: ${data.error}`,
+          isSuccess: false,
+        });
       }
     } catch {
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
+        isSuccess: false,
+      });
     } finally {
       setIsDeleting(null);
       setStudentToDelete(null);
     }
   };
 
-  // ดึงเฉพาะนักศึกษาที่ยังไม่ได้ลงทะเบียนในวิชานี้
+  const handleCloseAlertModal = () => {
+    if (alertModal.onClose) {
+      alertModal.onClose();
+    }
+    setAlertModal({ show: false, title: '', message: '', isSuccess: true });
+  };
+
   const availableStudents = useMemo(() => {
     if (!course?.students) return [];
     const enrolledIds = new Set(course.students.map((s: any) => s.id));
@@ -275,7 +352,6 @@ export default function StudentListPage() {
       .sort((a: any, b: any) => (a.studentCode || '').localeCompare(b.studentCode || '', undefined, { numeric: true }));
   }, [allSystemStudents, course?.students]);
 
-  // กรองตัวเลือกใน Searchable Select
   const filteredDropdownOptions = useMemo(() => {
     if (!searchQuery.trim()) return availableStudents;
     const q = searchQuery.toLowerCase().trim();
@@ -284,7 +360,6 @@ export default function StudentListPage() {
     );
   }, [availableStudents, searchQuery]);
 
-  // กรองตามคำค้นหาและจัดเรียงรหัสนักศึกษาในคลาส
   const filteredAndSortedStudents = useMemo(() => {
     if (!course?.students) return [];
     return [...course.students]
@@ -306,16 +381,40 @@ export default function StudentListPage() {
       });
   }, [course?.students, searchTerm, sortOrder]);
 
-  if (!course) return (
-    <div className="min-h-screen flex items-center justify-center bg-[#f0f7f4]">
-      <div className="text-center font-bold text-emerald-700 animate-pulse">กำลังโหลดข้อมูล...</div>
-    </div>
-  );
+  const sessionAttendances = useMemo(() => {
+    if (!selectedStudent?.attendances) return [];
+
+    const sorted = [...selectedStudent.attendances].sort((a: any, b: any) => {
+      const dateA = new Date(a.date || a.createdAt).getTime();
+      const dateB = new Date(b.date || b.createdAt).getTime();
+      return dateB - dateA;
+    });
+
+    const seenSessionKeys = new Set<string>();
+    const result: any[] = [];
+
+    for (const record of sorted) {
+      const d = new Date(record.date || record.createdAt);
+      const dateStr = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+      const timeSlotMatch = (record.remark || '').match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/);
+      const slot = timeSlotMatch ? timeSlotMatch[0].replace(/\s+/g, '') : '';
+      const isComp = (record.remark || '').includes('[สอนชดเชย]') ? 'COMP' : 'REG';
+
+      const sessionKey = record.sessionId ? `sess_${record.sessionId}` : `${dateStr}_${slot}_${isComp}`;
+
+      if (!seenSessionKeys.has(sessionKey)) {
+        seenSessionKeys.add(sessionKey);
+        result.push(record);
+      }
+    }
+
+    return result;
+  }, [selectedStudent]);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
 
-      {/* 1. Header ด้านบน */}
+      {/* 1. Header */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
         <div className="absolute top-6 left-6">
           <Link
@@ -326,8 +425,9 @@ export default function StudentListPage() {
           </Link>
         </div>
 
-        <div className="absolute top-6 right-6 hidden md:flex items-center gap-5">
+        <div className="absolute top-6 right-6 hidden md:flex items-center gap-3">
           <button
+            type="button"
             onClick={() => setIsSettingOpen(true)}
             className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer"
           >
@@ -335,21 +435,20 @@ export default function StudentListPage() {
           </button>
           <Link
             href={`/teacher/course/${courseId}`}
-            className="bg-emerald-500 hover:bg-emerald-600 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold shadow transition-all"
+            className="bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-xs transition-all"
           >
-            เริ่มเช็คชื่อ (Face Scan)
+            เริ่มเช็คชื่อ
           </Link>
         </div>
-
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
+          ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          วิชา: <span className="font-bold text-white">{course.courseName}</span> <span className="font-mono text-emerald-200">({course.courseCode})</span>
+          วิชา: <span className="font-bold text-white">{course?.courseCode || '...'}</span>  <span className="text-white-200">{course?.courseName || '...'}</span>
         </p>
       </header>
 
-      {/* 2. Navigation Tabs Bar */}
+      {/* 2. Navigation Tabs */}
       <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto">
         <div className="max-w-5xl mx-auto flex items-center justify-center gap-1 min-w-max">
           <Link
@@ -369,7 +468,7 @@ export default function StudentListPage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            รายงานประจำวัน
+            รายงานการเข้าเรียน
           </Link>
 
           <button
@@ -384,26 +483,28 @@ export default function StudentListPage() {
         </div>
       </nav>
 
-      {/* 3. เนื้อหาหลัก */}
+      {/* 3. Main Content */}
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 space-y-6">
-
-        {/* การ์ดสรุปข้อมูลรายวิชา */}
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">รายวิชา</span>
-            <h2 className="text-2xl font-black text-slate-800">{course.courseName}</h2>
+            <h2 className="text-2xl font-black text-slate-800">{course?.courseCode || '...'} : {course?.courseName || '...'}</h2>
           </div>
           <div className="flex items-center gap-3">
-            <span className="bg-emerald-50 text-emerald-700 font-mono font-bold text-xs px-3.5 py-1.5 rounded-xl border border-emerald-100">
-              {course.courseCode}
-            </span>
             <span className="bg-slate-50 text-slate-600 font-bold text-xs px-3.5 py-1.5 rounded-xl border border-slate-200/60">
-              นักศึกษาทั้งหมด {course.students?.length || 0} คน
+              นักศึกษาทั้งหมด {course?.students?.length || 0} คน
             </span>
+            <button
+              type="button"
+              onClick={() => setIsSettingOpen(true)}
+              className="md:hidden bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-1.5 rounded-xl border border-slate-200 transition-all cursor-pointer"
+            >
+              ตั้งค่าวิชา
+            </button>
           </div>
         </div>
 
-        {/* ฟอร์มเพิ่มนักศึกษาเข้าชั้นเรียน (Searchable Select Box Style) */}
+        {/* ฟอร์มเพิ่มนักศึกษา */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-sm font-black text-slate-800">
@@ -415,9 +516,8 @@ export default function StudentListPage() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 items-center">
-            {/* Custom Searchable Select Box */}
             <div className="relative flex-1 w-full" ref={selectBoxRef}>
-              <div 
+              <div
                 className="relative w-full cursor-pointer"
                 onClick={() => setIsOpenSelect(prev => !prev)}
               >
@@ -434,8 +534,6 @@ export default function StudentListPage() {
                   onFocus={() => setIsOpenSelect(true)}
                   className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-text"
                 />
-                
-                {/* Arrow Icon */}
                 <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -443,7 +541,6 @@ export default function StudentListPage() {
                 </div>
               </div>
 
-              {/* Dropdown Options */}
               {isOpenSelect && (
                 <div className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl max-h-64 overflow-y-auto z-50 divide-y divide-slate-100 animate-in fade-in duration-150">
                   {filteredDropdownOptions.length > 0 ? (
@@ -456,9 +553,8 @@ export default function StudentListPage() {
                           setSearchQuery(st.fullLabel);
                           setIsOpenSelect(false);
                         }}
-                        className={`px-4 py-2.5 text-xs md:text-sm cursor-pointer hover:bg-emerald-50/80 transition-colors flex justify-between items-center ${
-                          selectedStudentId === String(st.id) ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
-                        }`}
+                        className={`px-4 py-2.5 text-xs md:text-sm cursor-pointer hover:bg-emerald-50/80 transition-colors flex justify-between items-center ${selectedStudentId === String(st.id) ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
+                          }`}
                       >
                         <span className="font-mono font-bold text-emerald-700">[{st.studentCode}]</span>
                         <span className="font-bold text-slate-800">{st.cleanDisplayName}</span>
@@ -477,14 +573,14 @@ export default function StudentListPage() {
               type="button"
               disabled={isAdding || (!selectedStudentId && !selectedStudentCode)}
               onClick={handleAddStudentToCourse}
-              className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs md:text-sm rounded-xl shadow-sm transition-all whitespace-nowrap disabled:bg-slate-300 cursor-pointer"
+              className="w-full sm:w-auto px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white font-bold text-xs md:text-sm rounded-xl shadow-xs transition-all whitespace-nowrap disabled:bg-slate-300 cursor-pointer"
             >
               {isAdding ? 'กำลังบันทึก...' : '+ เพิ่มเข้าวิชา'}
             </button>
           </div>
         </div>
 
-        {/* แถบค้นหาในคลาส */}
+        {/* แถบค้นหา */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 flex items-center justify-between gap-3">
           <div className="relative w-full max-w-sm">
             <input
@@ -492,11 +588,11 @@ export default function StudentListPage() {
               placeholder="ค้นหารหัส หรือ ชื่อในวิชานี้..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+              className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
             />
           </div>
           <span className="text-xs text-slate-500 font-bold">
-            แสดง <span className="text-emerald-700 font-black">{filteredAndSortedStudents.length}</span> จากทั้งหมด {course.students?.length || 0} คน
+            แสดง <span className="text-emerald-700 font-black">{filteredAndSortedStudents.length}</span> จากทั้งหมด {course?.students?.length || 0} คน
           </span>
         </div>
 
@@ -507,11 +603,9 @@ export default function StudentListPage() {
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200/60">
                   <th className="p-4 text-xs font-bold text-slate-600 w-16 text-center">ลำดับ</th>
-                  
-                  <th 
+                  <th
                     className="p-4 text-xs font-bold text-slate-600 w-48 cursor-pointer select-none hover:bg-slate-100 transition-colors"
                     onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                    title="คลิกเพื่อเรียงลำดับรหัส"
                   >
                     <div className="inline-flex items-center gap-1.5">
                       <span>รหัสประจำตัว</span>
@@ -520,9 +614,8 @@ export default function StudentListPage() {
                       </span>
                     </div>
                   </th>
-
                   <th className="p-4 text-xs font-bold text-slate-600">ชื่อ - นามสกุล</th>
-                  <th className="p-4 text-xs font-bold text-slate-600 text-center w-48">การจัดการ</th>
+                  <th className="p-4 text-xs font-bold text-slate-600 text-center w-36">จัดการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -539,28 +632,42 @@ export default function StudentListPage() {
                       </td>
                       <td
                         className="p-4 font-bold text-slate-800 hover:text-emerald-700 cursor-pointer text-xs md:text-sm"
-                        onClick={() => { setSelectedStudent({ ...student, displayName }); setIsDrawerOpen(true); }}
+                        onClick={() => { setSelectedStudent({ ...student, displayName }); setIsReportModalOpen(true); }}
                       >
                         {displayName}
                       </td>
                       <td className="p-4 text-center">
-                        <div className="flex justify-center gap-2">
+                        <div className="flex justify-center items-center gap-1.5">
+
+                          {/* 1. ปุ่มดูรายงานสถิตินักศึกษา (Report Icon) */}
                           <button
-                            onClick={() => { setSelectedStudent({ ...student, displayName }); setIsDrawerOpen(true); }}
-                            className="text-emerald-700 bg-emerald-50 hover:bg-emerald-600 hover:text-white px-3.5 py-1.5 rounded-xl text-xs font-bold border border-emerald-200/60 transition-all cursor-pointer"
+                            type="button"
+                            onClick={() => { setSelectedStudent({ ...student, displayName }); setIsReportModalOpen(true); }}
+                            title="ดูสถิติการเข้าเรียน"
+                            className="p-2 text-slate-700 bg-slate-100 hover:bg-slate-700 hover:text-white rounded-xl border border-slate-200/80 transition-all shadow-2xs cursor-pointer"
                           >
-                            รายงาน
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
                           </button>
+
+                          {/* 2. ปุ่มลบนักศึกษา (Trash Can Icon) */}
                           <button
+                            type="button"
                             onClick={() => setStudentToDelete({ id: student.id, name: displayName })}
                             disabled={isDeleting === String(student.id)}
-                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${isDeleting === String(student.id)
+                            title="ลบนักศึกษาออกจากรายวิชา"
+                            className={`p-2 rounded-xl border transition-all shadow-2xs cursor-pointer ${
+                              isDeleting === String(student.id)
                                 ? 'bg-slate-100 text-slate-300 border-slate-200'
                                 : 'text-red-600 bg-red-50 hover:bg-red-600 hover:text-white border-red-200/60'
-                              }`}
+                            }`}
                           >
-                            {isDeleting === String(student.id) ? 'กำลังลบ...' : 'ลบออก'}
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
                           </button>
+
                         </div>
                       </td>
                     </tr>
@@ -578,73 +685,191 @@ export default function StudentListPage() {
         </div>
       </main>
 
-      {/* 4. Footer ด้านล่าง */}
-      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium mt-auto">
-        © 2026 ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+      {/* 4. Footer */}
+      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm mt-auto">
+        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
+        </p>
       </footer>
 
-      {/* Modal ตั้งค่ารายวิชา */}
-      {isSettingOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-xl p-6 md:p-8 border border-slate-100 animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-black text-slate-800">ตั้งค่ารายวิชา</h2>
+      {/* 5. Center Modal Popup: รายงานประวัตินักศึกษา */}
+      {isReportModalOpen && selectedStudent && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+
+            <div className="flex justify-between items-start pb-4 mb-5 border-b border-slate-100">
+              <div>
+                <h2 className="text-xl font-black text-slate-800 leading-tight">
+                  {selectedStudent.displayName || selectedStudent.name}
+                </h2>
+                <p className="text-xs font-bold text-emerald-700 mt-1 font-mono">
+                  รหัสประจำตัว: {selectedStudent.studentCode}
+                </p>
+              </div>
               <button
-                onClick={() => { setIsSettingOpen(false); setIsDirty(false); }}
-                className="text-slate-300 hover:text-slate-500 text-2xl font-bold cursor-pointer"
+                type="button"
+                onClick={() => setIsReportModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 text-2xl font-bold cursor-pointer transition-colors p-1"
               >
                 &times;
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="grid grid-cols-4 gap-2 mb-5">
+              {[
+                { label: 'มาเรียน', val: 'มาเรียน', color: 'text-emerald-700', bg: 'bg-emerald-50' },
+                { label: 'มาสาย', val: 'มาสาย', color: 'text-amber-700', bg: 'bg-amber-50' },
+                { label: 'ลา', val: 'ลา', color: 'text-blue-700', bg: 'bg-blue-50' },
+                { label: 'ขาดเรียน', val: 'ขาดเรียน', color: 'text-red-700', bg: 'bg-red-50' }
+              ].map((item) => (
+                <div key={item.val} className={`${item.bg} p-3 rounded-2xl text-center border border-slate-100`}>
+                  <p className="text-[10px] font-bold text-slate-500 mb-1">{item.label}</p>
+                  <p className={`text-xl font-black ${item.color}`}>
+                    {sessionAttendances.filter((a: any) => a.status === item.val).length}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-1 space-y-2">
+              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">ประวัติการเช็คชื่อทั้งหมด</h3>
+
+              {sessionAttendances.map((record: any) => (
+                <div key={record.id} className="flex justify-between items-center p-3.5 rounded-2xl bg-slate-50 border border-slate-200/70 hover:bg-slate-100/60 transition-colors">
+                  <div className="pr-3">
+                    <p className="text-xs font-bold text-slate-800">
+                      {new Date(record.date || record.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                    </p>
+                    <p className="text-[11px] font-medium text-slate-400 mt-0.5">
+                      {new Date(record.time || record.date || record.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                    </p>
+                    {record.remark && (
+                      <p className="text-[11px] text-slate-500 mt-1 font-medium">
+                        {record.remark}
+                      </p>
+                    )}
+                  </div>
+
+                  <span className={`px-3 py-1 rounded-xl text-xs font-bold border shrink-0 ${
+                    record.status === 'มาเรียน'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : record.status === 'มาสาย'
+                      ? 'bg-amber-50 text-amber-700 border-amber-200'
+                      : record.status === 'ลา'
+                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                      : 'bg-red-50 text-red-700 border-red-200'
+                  }`}>
+                    {record.status}
+                  </span>
+                </div>
+              ))}
+
+              {sessionAttendances.length === 0 && (
+                <div className="text-center py-12 text-slate-400 italic text-xs font-bold">
+                  ไม่พบข้อมูลการเช็คชื่อ
+                </div>
+              )}
+            </div>
+
+            <div className="pt-5 mt-4 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsReportModalOpen(false)}
+                className="w-full sm:w-28 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                ปิด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Modal Popup: ตั้งค่าและแก้ไขรายวิชา */}
+      {isSettingOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center pb-4 mb-5 border-b border-slate-100">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">ชื่อรายวิชา</label>
+                <h3 className="text-lg font-black text-slate-800">ตั้งค่ารายวิชา</h3>
+                <p className="text-xs text-slate-400 mt-0.5">แก้ไขรายละเอียดและจัดการสถานะของรายวิชา</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSettingOpen(false)}
+                className="text-slate-400 hover:text-slate-600 text-xl font-bold cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setShowUpdateCourseModal(true);
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  ชื่อรายวิชา
+                </label>
                 <input
                   type="text"
+                  required
                   value={editData.courseName}
                   onChange={(e) => handleInputChange('courseName', e.target.value)}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                 />
               </div>
+
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">รหัสวิชา</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  รหัสวิชา (Classroom Code)
+                </label>
                 <input
                   type="text"
+                  required
                   value={editData.courseCode}
                   onChange={(e) => handleInputChange('courseCode', e.target.value)}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-mono font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                 />
               </div>
 
-              {isDirty && (
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
                 <button
-                  onClick={() => setShowUpdateCourseModal(true)}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer mt-2"
-                >
-                  บันทึกการเปลี่ยนแปลง
-                </button>
-              )}
-
-              {/* Danger Zone */}
-              <div className="pt-4 border-t border-slate-100 space-y-2">
-                <label className="block text-[11px] font-bold text-red-500 uppercase tracking-wider">Danger Zone</label>
-                <button
+                  type="button"
                   onClick={() => setShowArchiveCourseModal(true)}
-                  className="w-full flex items-center justify-between p-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 transition-all text-left font-bold text-xs cursor-pointer border border-amber-200/60"
+                  className="px-4 py-2.5 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-xl border border-amber-200 transition-all cursor-pointer"
                 >
-                  <span>จัดเก็บรายวิชา (Archive)</span>
-                  <span className="text-[10px] text-amber-600 font-medium">ปิดคลาส</span>
+                  จัดเก็บวิชา (ปิดคลาส)
                 </button>
                 <button
+                  type="button"
                   onClick={() => setShowDeleteCourseModal(true)}
-                  className="w-full flex items-center justify-between p-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 transition-all text-left font-bold text-xs cursor-pointer border border-red-200/60"
+                  className="px-4 py-2.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl border border-red-200 transition-all cursor-pointer"
                 >
-                  <span>ลบรายวิชาถาวร</span>
-                  <span className="text-[10px] text-red-500 font-medium">กู้คืนไม่ได้</span>
+                  ลบวิชาถาวร
                 </button>
               </div>
-            </div>
+
+              <div className="pt-3 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsSettingOpen(false)}
+                  className="flex-1 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 transition-all cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={!isDirty}
+                  className="flex-[2] bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer"
+                >
+                  บันทึกการแก้ไข
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -653,15 +878,10 @@ export default function StudentListPage() {
       {showUpdateCourseModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
-            <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
-              ✓
-            </div>
-
             <h3 className="text-xl font-black text-slate-800">ยืนยันการแก้ไขรายวิชา</h3>
             <p className="text-xs text-slate-400 mt-1">
               คุณต้องการบันทึกการเปลี่ยนแปลงข้อมูลวิชานี้ใช่หรือไม่?
             </p>
-
             <div className="bg-slate-50 rounded-xl p-4 my-5 text-xs text-slate-600 text-left space-y-2 border border-slate-200/60">
               <div className="flex justify-between">
                 <span className="text-slate-400 font-bold">ชื่อวิชาใหม่:</span>
@@ -672,19 +892,18 @@ export default function StudentListPage() {
                 <span className="font-mono font-bold text-emerald-700">{editData.courseCode}</span>
               </div>
             </div>
-
             <div className="flex gap-3">
               <button
                 type="button"
                 onClick={() => setShowUpdateCourseModal(false)}
-                className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 text-xs rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer"
+                className="flex-1 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer"
               >
-                แก้ไข
+                ยกเลิก
               </button>
               <button
                 type="button"
                 onClick={handleConfirmUpdateCourse}
-                className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                className="flex-[2] bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
               >
                 ยืนยันบันทึก
               </button>
@@ -697,27 +916,22 @@ export default function StudentListPage() {
       {showArchiveCourseModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
-            <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
-              📦
-            </div>
-
             <h3 className="text-xl font-black text-slate-800">ยืนยันการจัดเก็บรายวิชา</h3>
-            <p className="text-xs text-slate-500 mt-2">
+            <p className="text-xs text-slate-500 mt-2 leading-relaxed">
               วิชานี้จะถูกย้ายไปยังคลังรายวิชา (ปิดคลาส) และจะไม่แสดงผลในหน้ารายวิชาที่กำลังเปิดสอน
             </p>
-
             <div className="flex gap-3 mt-6">
               <button
                 type="button"
                 onClick={() => setShowArchiveCourseModal(false)}
-                className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 text-xs rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer"
+                className="flex-1 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer"
               >
                 ยกเลิก
               </button>
               <button
                 type="button"
                 onClick={handleConfirmArchiveCourse}
-                className="flex-[2] bg-amber-500 hover:bg-amber-600 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                className="flex-[2] bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
               >
                 จัดเก็บรายวิชา
               </button>
@@ -730,27 +944,22 @@ export default function StudentListPage() {
       {showDeleteCourseModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
-            <div className="w-12 h-12 bg-red-50 text-red-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
-              !
-            </div>
-
             <h3 className="text-xl font-black text-slate-800">ยืนยันการลบรายวิชา</h3>
-            <p className="text-xs text-red-500 font-bold mt-2 leading-relaxed">
+            <p className="text-xs text-red-600 font-bold mt-2 leading-relaxed">
               คำเตือน: ข้อมูลนักศึกษาและประวัติเช็คชื่อทั้งหมดในรายวิชานี้จะหายไปถาวรและกู้คืนไม่ได้
             </p>
-
             <div className="flex gap-3 mt-6">
               <button
                 type="button"
                 onClick={() => setShowDeleteCourseModal(false)}
-                className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 text-xs rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer"
+                className="flex-1 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer"
               >
                 ยกเลิก
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDeleteCourse}
-                className="flex-[2] bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                className="flex-[2] bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
               >
                 ลบวิชาถาวร
               </button>
@@ -763,27 +972,22 @@ export default function StudentListPage() {
       {studentToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
-            <div className="w-12 h-12 bg-red-50 text-red-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
-              !
-            </div>
-
-            <h3 className="text-xl font-black text-slate-800">ยืนยันการลบนักศึกษา</h3>
+            <h3 className="text-xl font-black text-slate-800">ยืนยันการยกเลิกนักศึกษา</h3>
             <p className="text-xs text-slate-500 mt-2">
-              คุณต้องการลบคุณ <span className="font-bold text-slate-800">{studentToDelete.name}</span> ออกจากรายวิชานี้หรือไม่?
+              คุณต้องการยกเลิกคุณ <span className="font-bold text-slate-800">{studentToDelete.name}</span> ออกจากวิชานี้หรือไม่?
             </p>
-
             <div className="flex gap-3 mt-6">
               <button
                 type="button"
                 onClick={() => setStudentToDelete(null)}
-                className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 text-xs rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer"
+                className="flex-1 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer"
               >
                 ยกเลิก
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDeleteStudent}
-                className="flex-[2] bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                className="flex-[2] bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
               >
                 ลบออกจากวิชา
               </button>
@@ -792,69 +996,37 @@ export default function StudentListPage() {
         </div>
       )}
 
-      {/* Side Drawer รายงานประวัตินักศึกษา */}
-      {isDrawerOpen && selectedStudent && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setIsDrawerOpen(false)} />
-          <div className="relative w-full max-w-md bg-white h-full shadow-xl p-6 md:p-8 animate-in slide-in-from-right duration-300 flex flex-col">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h2 className="text-xl font-black text-slate-800 leading-none">{selectedStudent.displayName || selectedStudent.name}</h2>
-                <p className="text-xs font-bold text-emerald-700 mt-2 font-mono">{selectedStudent.studentCode}</p>
+      {/* Custom Alert Modal */}
+      {alertModal.show && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
+            {alertModal.isSuccess ? (
+              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
               </div>
-              <button onClick={() => setIsDrawerOpen(false)} className="text-slate-300 hover:text-slate-600 text-2xl font-bold cursor-pointer">&times;</button>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
-              {[
-                { label: 'มาเรียน', val: 'มาเรียน', color: 'text-emerald-700', bg: 'bg-emerald-50' },
-                { label: 'มาสาย', val: 'มาสาย', color: 'text-amber-700', bg: 'bg-amber-50' },
-                { label: 'ลา', val: 'ลา', color: 'text-blue-700', bg: 'bg-blue-50' },
-                { label: 'ขาดเรียน', val: 'ขาดเรียน', color: 'text-red-700', bg: 'bg-red-50' }
-              ].map((item) => (
-                <div key={item.val} className={`${item.bg} p-3 rounded-xl text-center border border-slate-100`}>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">{item.label}</p>
-                  <p className={`text-xl font-black ${item.color}`}>
-                    {selectedStudent.attendances?.filter((a: any) => a.status === item.val).length || 0}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex-1 overflow-y-auto pr-1">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">ประวัติการเช็คชื่อ</h3>
-              <div className="space-y-2">
-                {selectedStudent.attendances?.sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime()).map((record: any) => (
-                  <div key={record.id} className="flex justify-between items-center p-3 rounded-xl bg-slate-50 border border-slate-200/60">
-                    <div>
-                      <p className="text-xs font-bold text-slate-800">
-                        {new Date(record.createdAt || record.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
-                      </p>
-                      <p className="text-[10px] font-medium text-slate-400">
-                        {new Date(record.createdAt || record.date).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
-                      </p>
-                    </div>
-                    <select
-                      value={record.status}
-                      onChange={(e) => handleStatusChange(record.id, e.target.value)}
-                      className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border outline-none cursor-pointer transition-all ${record.status === 'มาเรียน' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                          record.status === 'มาสาย' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                            record.status === 'ลา' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                              'bg-red-50 text-red-700 border-red-200'
-                        }`}
-                    >
-                      <option value="มาเรียน">มาเรียน</option>
-                      <option value="มาสาย">มาสาย</option>
-                      <option value="ลา">ลา</option>
-                      <option value="ขาดเรียน">ขาดเรียน</option>
-                    </select>
-                  </div>
-                ))}
-                {(!selectedStudent.attendances || selectedStudent.attendances.length === 0) && (
-                  <div className="text-center py-10 text-slate-400 italic text-xs font-bold">ไม่พบข้อมูลการเช็คชื่อ</div>
-                )}
+            ) : (
+              <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+                </svg>
               </div>
-            </div>
+            )}
+
+            <h3 className="text-lg font-black text-slate-800 mb-1">{alertModal.title}</h3>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
+              {alertModal.message}
+            </p>
+
+            <button
+              type="button"
+              onClick={handleCloseAlertModal}
+              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-xs transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-red-600 hover:bg-red-700'
+                }`}
+            >
+              ตกลง
+            </button>
           </div>
         </div>
       )}

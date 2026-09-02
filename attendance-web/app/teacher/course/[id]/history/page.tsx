@@ -41,7 +41,7 @@ export default function AttendanceHistoryPage() {
       let res = await fetch(`/api/teacher/course/${courseId}/history`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      
+
       if (!res.ok) {
         // Fallback endpoint
         res = await fetch(`/api/attendance/history/${courseId}`, {
@@ -72,7 +72,7 @@ export default function AttendanceHistoryPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
-      
+
       {/* 1. Header ด้านบนตาม Style Canva (หัวข้อตรงกลาง 100%) */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative print:hidden">
         <div className="absolute top-6 left-6">
@@ -84,10 +84,10 @@ export default function AttendanceHistoryPage() {
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
+          ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          วิชา: <span className="font-bold text-white">{courseInfo?.courseName || 'กำลังโหลด...'}</span> {courseInfo?.courseCode ? `(${courseInfo.courseCode})` : ''}
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
         </p>
       </header>
 
@@ -138,7 +138,7 @@ export default function AttendanceHistoryPage() {
 
       {/* 3. Main Content: รายการประวัติการเช็คชื่อตามรอบ */}
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8">
-        
+
         {/* การ์ดสรุปข้อมูล */}
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
@@ -222,8 +222,11 @@ export default function AttendanceHistoryPage() {
       </main>
 
       {/* 4. Footer ด้านล่าง */}
-      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium mt-auto">
-        © 2026 ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
+        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
+        </p>
       </footer>
 
       {/* Modal แสดงรายละเอียดการเช็คชื่อ */}
@@ -283,15 +286,14 @@ export default function AttendanceHistoryPage() {
                         </p>
                       </div>
                       <span
-                        className={`text-xs font-bold px-3 py-1 rounded-xl border ${
-                          att.status === 'มาเรียน'
+                        className={`text-xs font-bold px-3 py-1 rounded-xl border ${att.status === 'มาเรียน'
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                             : att.status === 'มาสาย'
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : att.status === 'ลา'
-                            ? 'bg-blue-50 text-blue-700 border-blue-200'
-                            : 'bg-red-50 text-red-700 border-red-200'
-                        }`}
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : att.status === 'ลา'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : 'bg-red-50 text-red-700 border-red-200'
+                          }`}
                       >
                         {att.status}
                       </span>

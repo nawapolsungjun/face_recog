@@ -8,7 +8,18 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { courseId, date, imageUrls, imageUrl, attendanceData, detectedNames, note, round } = body;
+    const {
+      courseId,
+      date,
+      timeSlot,
+      sessionType,
+      imageUrls,
+      imageUrl,
+      attendanceData,
+      detectedNames,
+      note,
+      round
+    } = body;
 
     // 1. ตรวจสอบความถูกต้องของ courseId
     if (!courseId) {
@@ -18,7 +29,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. ดึงข้อมูลนักศึกษาทั้งหมดในรายวิชานี้ (ใช้ students: true ป้องกัน Error ฟิลด์ไม่ตรง)
+    // 2. ดึงข้อมูลนักศึกษาทั้งหมดในรายวิชานี้
     const course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
@@ -64,55 +75,76 @@ export async function POST(request: Request) {
 
     const savedImagePath = savedPaths.length > 0 ? savedPaths.join(',') : null;
 
-    // 4. กำหนดวันที่และรอบ
-    const sessionDate = date ? new Date(date) : new Date();
-    const currentRoundNumber = Number(round) || 1;
+    // 4. บันทึก "เวลาจริงที่เช็คชื่อ" (Real Timestamp)
+    const now = new Date();
+    let sessionDate = new Date();
 
-    // 5. สร้าง Map สถานะและ Remark ที่ส่งมาจาก Frontend
+    if (date) {
+      const [year, month, day] = date.split('-').map(Number);
+      // รวมวันที่ที่เลือกเข้ากับ ชั่วโมง:นาที:วินาที ปัจจุบันจริง
+      sessionDate = new Date(year, month - 1, day, now.getHours(), now.getMinutes(), now.getSeconds());
+    }
+
+    const currentRoundNumber = Number(round) || 1;
+    const currentSlot = timeSlot || '09:00-12:00';
+    const currentType = sessionType === 'COMPENSATION' ? 'COMPENSATION' : 'REGULAR';
+
+    const defaultSessionNote = note || (
+      currentType === 'COMPENSATION'
+        ? `[สอนชดเชย] ช่วงเวลา ${currentSlot} น. (รอบที่ ${currentRoundNumber})`
+        : `ช่วงเวลา ${currentSlot} น. (รอบที่ ${currentRoundNumber})`
+    );
+
+    // 5. สร้าง Map สถานะและ Remark
     const statusMap = new Map<number, { status: string; remark?: string }>();
     if (Array.isArray(attendanceData)) {
       attendanceData.forEach((item: any) => {
         if (item.studentId) {
           statusMap.set(Number(item.studentId), {
             status: item.status || 'ขาดเรียน',
-            remark: item.remark || (currentRoundNumber >= 2 && item.status === 'มาสาย' ? 'เช็คชื่อรอบที่ 2' : undefined)
+            remark: item.remark || (currentRoundNumber >= 2 && item.status === 'มาสาย' ? `เช็คชื่อรอบที่ 2 (${currentSlot} น.)` : undefined)
           });
         }
       });
     }
 
-    // 6. บันทึกข้อมูลด้วย Transaction
+    // 6. บันทึกข้อมูลด้วย Database Transaction
     const result = await prisma.$transaction(async (tx) => {
-      // สร้าง Session การเช็คชื่อรอบใหม่
       const newSession = await tx.attendanceSession.create({
         data: {
           courseId: courseId,
           roundNumber: currentRoundNumber,
           imageUrl: savedImagePath,
-          note: note || (currentRoundNumber >= 2 ? `เช็คชื่อรอบที่ ${currentRoundNumber}` : null),
+          note: defaultSessionNote,
           createdAt: sessionDate,
         }
       });
 
-      // จัดเตรียมรายการบันทึกของนักศึกษาทุกคน
       const attendanceRecords = course.students.map((student: any) => {
         const evaluated = statusMap.get(student.id);
         const finalStatus = evaluated ? evaluated.status : 'ขาดเรียน';
-        const finalRemark = evaluated?.remark || (currentRoundNumber >= 2 && finalStatus === 'มาสาย' ? 'เช็คชื่อรอบที่ 2' : null);
+        
+        let finalRemark = evaluated?.remark;
+        if (!finalRemark) {
+          if (currentType === 'COMPENSATION') {
+            finalRemark = `[สอนชดเชย] ${finalStatus === 'มาเรียน' ? 'เข้าเรียน' : finalStatus} (${currentSlot} น.)`;
+          } else if (currentRoundNumber >= 2 && finalStatus === 'มาสาย') {
+            finalRemark = `เช็คชื่อรอบที่ 2 (${currentSlot} น.)`;
+          }
+        }
 
         return {
           studentId: student.id,
           courseId: courseId,
           status: finalStatus,
-          remark: finalRemark,
+          remark: finalRemark || null,
           sessionId: newSession.id,
           date: sessionDate,
           createdAt: sessionDate,
-          updatedAt: sessionDate,
+          updatedAt: new Date(),
         };
       });
 
-      // บันทึก Attendance ของทุกคนลงฐานข้อมูล
       await tx.attendance.createMany({
         data: attendanceRecords,
       });
@@ -120,12 +152,15 @@ export async function POST(request: Request) {
       return {
         sessionId: newSession.id,
         roundNumber: currentRoundNumber,
+        sessionType: currentType,
+        timeSlot: currentSlot,
       };
     });
 
+    const typeLabel = result.sessionType === 'COMPENSATION' ? 'คาบสอนชดเชย' : 'คาบปกติ';
     return NextResponse.json({
       success: true,
-      message: `บันทึกการเช็คชื่อรอบที่ ${result.roundNumber} เรียบร้อยแล้ว`,
+      message: `บันทึกการเช็คชื่อ ${typeLabel} (${result.timeSlot} น.) รอบที่ ${result.roundNumber} เรียบร้อยแล้ว`,
       data: result,
     });
 

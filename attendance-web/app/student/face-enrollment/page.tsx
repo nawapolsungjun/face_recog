@@ -30,13 +30,32 @@ export default function FaceEnrollmentPage() {
   const [capturedVectors, setCapturedVectors] = useState<any[]>([]);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
+  // State สำหรับ Custom Alert / Success Popup (แทนที่ alert ดั้งเดิม)
+  const [alertModal, setAlertModal] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    isSuccess?: boolean;
+    onClose?: () => void;
+  }>({
+    show: false,
+    title: '',
+    message: '',
+    isSuccess: true,
+  });
+
   useEffect(() => {
     const savedUser = localStorage.getItem('student_user');
     const token = localStorage.getItem('student_token');
 
     if (!savedUser) {
-      alert('กรุณาเข้าสู่ระบบก่อนทำการลงทะเบียนใบหน้า');
-      router.push('/student/login');
+      setAlertModal({
+        show: true,
+        title: 'จำเป็นต้องเข้าสู่ระบบ',
+        message: 'กรุณาเข้าสู่ระบบก่อนทำการลงทะเบียนใบหน้า',
+        isSuccess: false,
+        onClose: () => router.push('/student/login'),
+      });
       return;
     }
 
@@ -44,7 +63,7 @@ export default function FaceEnrollmentPage() {
     const initialName = `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.name || userData.displayName || 'นักศึกษา';
     
     setUser({ ...userData, displayName: initialName });
-    setStatus(`สวัสดีคุณ ${initialName} กรุณาเลือกวิธีลงทะเบียนใบหน้าด้านล่าง`);
+    setStatus(`สวัสดี ${initialName} กรุณาเลือกวิธีลงทะเบียนใบหน้าด้านล่าง`);
 
     const fetchLatestProfile = async () => {
       try {
@@ -59,7 +78,7 @@ export default function FaceEnrollmentPage() {
             ...resJson.data,
             displayName: freshName,
           }));
-          setStatus(`สวัสดีคุณ ${freshName} กรุณาเลือกวิธีลงทะเบียนใบหน้าด้านล่าง`);
+          setStatus(`สวัสดี ${freshName} กรุณาเลือกวิธีลงทะเบียนใบหน้าด้านล่าง`);
         }
       } catch (err) {
         console.error('Failed to load profile:', err);
@@ -73,7 +92,12 @@ export default function FaceEnrollmentPage() {
     if (e.target.files) {
       const selectedFiles = e.target.files;
       if (selectedFiles.length < 3) {
-        alert('เพื่อความแม่นยำ กรุณาเลือกอัปโหลดอย่างน้อย 3 รูปขึ้นไป');
+        setAlertModal({
+          show: true,
+          title: 'คำแนะนำการอัปโหลด',
+          message: 'เพื่อความแม่นยำ กรุณาเลือกอัปโหลดอย่างน้อย 3 รูปขึ้นไป',
+          isSuccess: false,
+        });
       }
       setFiles(selectedFiles);
       const fileArray = Array.from(selectedFiles).map(file => URL.createObjectURL(file));
@@ -111,10 +135,20 @@ export default function FaceEnrollmentPage() {
             setStatus(`บันทึกสำเร็จ (${newProgress}%) กรุณา${SCAN_STEPS[nextIndex].label}`);
           }
         } else {
-          alert(`ตรวจไม่พบใบหน้า: ${data.error}`);
+          setAlertModal({
+            show: true,
+            title: 'ตรวจไม่พบใบหน้า',
+            message: data.error || 'กรุณาจัดตำแหน่งใบหน้าให้อยู่ในกรอบและมีแสงสว่างเพียงพอ',
+            isSuccess: false,
+          });
         }
       } catch {
-        alert('ไม่สามารถติดต่อระบบประมวลผลใบหน้า (Python AI) ได้');
+        setAlertModal({
+          show: true,
+          title: 'เกิดข้อผิดพลาด',
+          message: 'ไม่สามารถติดต่อระบบประมวลผลใบหน้า (Python Face-API) ได้',
+          isSuccess: false,
+        });
       }
     }
     setIsLoading(false);
@@ -122,11 +156,21 @@ export default function FaceEnrollmentPage() {
 
   const handleOpenConfirm = () => {
     if (regMode === 'upload' && (!files || files.length < 3)) {
-      alert('กรุณาเลือกรูปภาพอย่างน้อย 3 รูปขึ้นไป');
+      setAlertModal({
+        show: true,
+        title: 'ข้อมูลไม่ครบถ้วน',
+        message: 'กรุณาเลือกรูปภาพอย่างน้อย 3 รูปขึ้นไป',
+        isSuccess: false,
+      });
       return;
     }
     if (regMode === 'scan' && scanProgress < 60) {
-      alert('กรุณาสแกนใบหน้าอย่างน้อย 3 มุมขึ้นไป (60%)');
+      setAlertModal({
+        show: true,
+        title: 'สแกนยังไม่ครบถ้วน',
+        message: 'กรุณาสแกนใบหน้าอย่างน้อย 3 มุมขึ้นไป (60%) เพื่อความแม่นยำ',
+        isSuccess: false,
+      });
       return;
     }
     setShowConfirmModal(true);
@@ -179,16 +223,34 @@ export default function FaceEnrollmentPage() {
       const dbResult = await dbResponse.json();
       if (dbResult.success) {
         setStatus('ลงทะเบียนใบหน้าสำเร็จแล้ว');
-        alert('ลงทะเบียนใบหน้าสมบูรณ์ ระบบจะพาคุณไปที่ Dashboard');
-        router.replace('/student/dashboard');
+        setAlertModal({
+          show: true,
+          title: 'ลงทะเบียนใบหน้าเรียบร้อย',
+          message: 'ลงทะเบียนใบหน้าสมบูรณ์ ระบบจะพาไปที่ Dashboard',
+          isSuccess: true,
+          onClose: () => router.replace('/student/dashboard'),
+        });
       } else {
         throw new Error(dbResult.error);
       }
     } catch (err: any) {
       setStatus(`ข้อผิดพลาด: ${err.message}`);
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: err.message || 'ไม่สามารถบันทึกข้อมูลใบหน้าได้',
+        isSuccess: false,
+      });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleCloseAlertModal = () => {
+    if (alertModal.onClose) {
+      alertModal.onClose();
+    }
+    setAlertModal({ show: false, title: '', message: '', isSuccess: true });
   };
 
   const handleReset = () => {
@@ -203,7 +265,7 @@ export default function FaceEnrollmentPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
       
-      {/* 1. Header ด้านบนตาม Style Canva (หัวข้อตรงกลาง 100%) */}
+      {/* 1. Header ด้านบน */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
         <div className="absolute top-6 left-6">
           <Link
@@ -214,14 +276,14 @@ export default function FaceEnrollmentPage() {
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
+          ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
           ลงทะเบียนใบหน้า: <span className="font-bold text-white">{user?.displayName || 'กำลังโหลด...'}</span> {user?.studentCode ? `(${user.studentCode})` : ''}
         </p>
       </header>
 
-      {/* 3. Main Content Card */}
+      {/* 2. Main Content Card */}
       <main className="flex-1 max-w-xl w-full mx-auto p-4 md:py-8 flex flex-col justify-center">
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80">
           
@@ -361,12 +423,15 @@ export default function FaceEnrollmentPage() {
         </div>
       </main>
 
-      {/* 4. Footer ด้านล่าง */}
-      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium mt-auto">
-        © 2026 ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+      {/* 3. Footer ด้านล่าง */}
+      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
+        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
+        </p>
       </footer>
 
-      {/* Modal ป๊อบอัปยืนยันการลงทะเบียนใบหน้า */}
+      {/* 4. Modal ป๊อบอัปยืนยันการลงทะเบียนใบหน้า */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200 text-center">
@@ -412,6 +477,43 @@ export default function FaceEnrollmentPage() {
           </div>
         </div>
       )}
+
+      {/* 5. Custom Modal: แจ้งเตือนสำเร็จ / ข้อผิดพลาด */}
+      {alertModal.show && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
+            {alertModal.isSuccess ? (
+              <div className="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-5">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+            ) : (
+              <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-5">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+                </svg>
+              </div>
+            )}
+
+            <h3 className="text-xl font-black text-slate-800 mb-1.5">{alertModal.title}</h3>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
+              {alertModal.message}
+            </p>
+
+            <button
+              type="button"
+              onClick={handleCloseAlertModal}
+              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${
+                alertModal.isSuccess ? 'bg-[#16a34a] hover:bg-[#15803d]' : 'bg-[#dc2626] hover:bg-[#b91c1c]'
+              }`}
+            >
+              ตกลง
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

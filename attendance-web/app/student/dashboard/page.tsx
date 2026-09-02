@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -26,6 +26,20 @@ export default function StudentDashboard() {
   const [editData, setEditData] = useState({ firstName: '', lastName: '', password: '' });
   const [isUpdating, setIsUpdating] = useState(false);
   const [showFaceWarning, setShowFaceWarning] = useState(false);
+
+  // State สำหรับ Custom Alert / Success Popup
+  const [alertModal, setAlertModal] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    isSuccess?: boolean;
+    onClose?: () => void;
+  }>({
+    show: false,
+    title: '',
+    message: '',
+    isSuccess: true,
+  });
 
   const executeLogout = useCallback(() => {
     localStorage.removeItem('student_user');
@@ -111,17 +125,61 @@ export default function StudentDashboard() {
         setSelectedCourseData(json.data);
       }
     } catch {
-      alert("ไม่สามารถโหลดข้อมูลได้");
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: 'ไม่สามารถโหลดข้อมูลรายละเอียดวิชาได้',
+        isSuccess: false,
+      });
     } finally {
       setIsLoadingDetail(false);
     }
   };
 
-  // 1. กดปุ่ม JOIN -> ตรวจสอบว่ามีข้อมูลใบหน้าหรือยัง
+  // กรองประวัติการเข้าเรียนของวิชาที่เลือกให้เหลือวันละ 1 รายการ (ผลลัพธ์ล่าสุด)
+  const uniqueAttendanceList = useMemo(() => {
+    if (!selectedCourseData?.attendance) return [];
+
+    const sorted = [...selectedCourseData.attendance].sort((a: any, b: any) => {
+      const dateA = new Date(a.date || a.createdAt).getTime();
+      const dateB = new Date(b.date || b.createdAt).getTime();
+      return dateB - dateA;
+    });
+
+    const seenDates = new Set<string>();
+    const result: any[] = [];
+
+    for (const record of sorted) {
+      const d = new Date(record.date || record.createdAt);
+      const dateKey = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+      if (!seenDates.has(dateKey)) {
+        seenDates.add(dateKey);
+        result.push(record);
+      }
+    }
+
+    return result;
+  }, [selectedCourseData]);
+
+  // คำนวณยอดสถิติ 4 ช่องใหม่โดยไม่นับวันซ้ำ
+  const uniqueSummary = useMemo(() => {
+    const total = uniqueAttendanceList.length;
+    const present = uniqueAttendanceList.filter((a: any) => a.status === 'มาเรียน').length;
+    const late = uniqueAttendanceList.filter((a: any) => a.status === 'มาสาย').length;
+    const absent = uniqueAttendanceList.filter((a: any) => a.status === 'ขาดเรียน').length;
+    const leave = uniqueAttendanceList.filter((a: any) => a.status === 'ลา').length;
+    return { total, present, late, absent, leave };
+  }, [uniqueAttendanceList]);
+
   const handleJoinClick = (e: React.FormEvent) => {
     e.preventDefault();
     if (!courseCode.trim()) {
-      alert('กรุณากรอกรหัส Classroom');
+      setAlertModal({
+        show: true,
+        title: 'ข้อมูลไม่ครบถ้วน',
+        message: 'กรุณากรอกรหัส Classroom ก่อนดำเนินการ',
+        isSuccess: false,
+      });
       return;
     }
 
@@ -134,7 +192,6 @@ export default function StudentDashboard() {
     }
   };
 
-  // 2. กดยืนยันการเข้าชั้นเรียนจริง
   const handleConfirmJoinClass = async () => {
     setIsJoining(true);
     setStatus('กำลังเข้าร่วม...');
@@ -155,15 +212,33 @@ export default function StudentDashboard() {
         setShowJoinConfirmModal(false);
         setShowNoFaceJoinModal(false);
         if (token) fetchMyCourses(user.id, token);
+        setAlertModal({
+          show: true,
+          title: 'เข้าร่วมชั้นเรียนสำเร็จ',
+          message: 'คุณได้เข้าร่วมรายวิชาเรียบร้อยแล้ว',
+          isSuccess: true,
+        });
       } else {
         setStatus(`${data.error}`);
         setShowJoinConfirmModal(false);
         setShowNoFaceJoinModal(false);
+        setAlertModal({
+          show: true,
+          title: 'ไม่สามารถเข้าร่วมได้',
+          message: data.error || 'เกิดข้อผิดพลาดในการเข้าร่วมรายวิชา',
+          isSuccess: false,
+        });
       }
     } catch {
       setStatus('เกิดข้อผิดพลาดในการเชื่อมต่อ');
       setShowJoinConfirmModal(false);
       setShowNoFaceJoinModal(false);
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
+        isSuccess: false,
+      });
     } finally {
       setIsJoining(false);
     }
@@ -189,30 +264,59 @@ export default function StudentDashboard() {
       });
       const data = await res.json();
       if (data.success) {
+        setIsEditModalOpen(false);
         if (editData.password && editData.password.length > 0) {
-          alert('เปลี่ยนรหัสผ่านสำเร็จ กรุณาเข้าสู่ระบบใหม่');
-          executeLogout();
+          setAlertModal({
+            show: true,
+            title: 'เปลี่ยนรหัสผ่านสำเร็จ',
+            message: 'เปลี่ยนรหัสผ่านสำเร็จ กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
+            isSuccess: true,
+            onClose: () => executeLogout(),
+          });
           return;
         }
-        alert('บันทึกเรียบร้อย');
+
         const newFullName = `${editData.firstName} ${editData.lastName}`.trim();
-        const updatedUser = { 
-          ...user, 
-          firstName: editData.firstName, 
-          lastName: editData.lastName, 
-          displayName: newFullName 
+        const updatedUser = {
+          ...user,
+          firstName: editData.firstName,
+          lastName: editData.lastName,
+          displayName: newFullName
         };
         localStorage.setItem('student_user', JSON.stringify(updatedUser));
         setUser(updatedUser);
-        setIsEditModalOpen(false);
+
+        setAlertModal({
+          show: true,
+          title: 'บันทึกข้อมูลเรียบร้อย',
+          message: 'ข้อมูลส่วนตัวของคุณได้รับการอัปเดตเรียบร้อยแล้ว',
+          isSuccess: true,
+        });
       } else {
-        alert(data.error || 'เกิดข้อผิดพลาด');
+        setAlertModal({
+          show: true,
+          title: 'เกิดข้อผิดพลาด',
+          message: data.error || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล',
+          isSuccess: false,
+        });
       }
     } catch {
-      alert('เกิดข้อผิดพลาด');
+      setAlertModal({
+        show: true,
+        title: 'เกิดข้อผิดพลาด',
+        message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
+        isSuccess: false,
+      });
     } finally {
       setIsUpdating(false);
     }
+  };
+
+  const handleCloseAlertModal = () => {
+    if (alertModal.onClose) {
+      alertModal.onClose();
+    }
+    setAlertModal({ show: false, title: '', message: '', isSuccess: true });
   };
 
   if (isPageLoading) {
@@ -228,35 +332,35 @@ export default function StudentDashboard() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800 print:bg-white print:p-0">
-      
-      {/* 1. Header ด้านบนตาม Style Canva (หัวข้อตรงกลาง 100%) */}
+
+      {/* 1. Header */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative print:hidden">
         <div className="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="text-center md:text-left">
             <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-              ระบบตรวจสอบรายชื่อเข้าชั้นเรียน
+              ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
             </h1>
             <p className="text-emerald-100 font-medium text-xs md:text-sm">
-              นักศึกษา: <span className="font-bold text-white">{user?.displayName}</span> <span className="font-mono text-emerald-200">({user?.studentCode})</span>
+              นักศึกษา: <span className="font-bold text-white">{user?.displayName}</span> : <span className="font-mono text-emerald-200">{user?.studentCode}</span>
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button 
-              onClick={() => { 
-                setEditData({ 
-                  firstName: user.firstName || '', 
-                  lastName: user.lastName || '', 
-                  password: '' 
-                }); 
-                setIsEditModalOpen(true); 
-              }} 
+            <button
+              onClick={() => {
+                setEditData({
+                  firstName: user.firstName || '',
+                  lastName: user.lastName || '',
+                  password: ''
+                });
+                setIsEditModalOpen(true);
+              }}
               className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer"
             >
               แก้ไขโปรไฟล์
             </button>
-            <button 
-              onClick={() => setShowLogoutModal(true)} 
+            <button
+              onClick={() => setShowLogoutModal(true)}
               className="bg-red-500/80 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer"
             >
               ออกจากระบบ
@@ -274,7 +378,7 @@ export default function StudentDashboard() {
 
       {/* 3. Main Content */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-8">
-        
+
         {/* แถบแจ้งเตือนสแกนหน้า */}
         {showFaceWarning && !(user?.faceVectors || user?.hasFaceVectors) && (
           <div className="mb-6 animate-in slide-in-from-top duration-500 print:hidden">
@@ -283,10 +387,7 @@ export default function StudentDashboard() {
                 <h3 className="font-bold text-amber-800 text-sm">ยังไม่ได้ลงทะเบียนใบหน้า</h3>
                 <p className="text-amber-700 text-xs mt-0.5">กรุณาลงทะเบียนใบหน้าเพื่อใช้งานระบบเช็คชื่ออัตโนมัติ</p>
               </div>
-              <Link
-                href="/student/face-enrollment"
-                className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all whitespace-nowrap"
-              >
+              <Link className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all whitespace-nowrap" href="/student/face-enrollment">
                 ลงทะเบียนเดี๋ยวนี้
               </Link>
             </div>
@@ -297,13 +398,13 @@ export default function StudentDashboard() {
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 mb-8 print:hidden">
           <h2 className="text-lg font-black text-slate-800 mb-3">เข้าร่วมชั้นเรียนใหม่</h2>
           <form onSubmit={handleJoinClick} className="flex flex-col sm:flex-row gap-3">
-            <input 
-              type="text" 
-              placeholder="กรอกรหัส Classroom" 
-              required 
-              className="flex-1 px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" 
-              value={courseCode} 
-              onChange={(e) => setCourseCode(e.target.value)} 
+            <input
+              type="text"
+              placeholder="กรอกรหัส Classroom"
+              required
+              className="flex-1 px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+              value={courseCode}
+              onChange={(e) => setCourseCode(e.target.value)}
             />
             <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs md:text-sm shadow-sm transition-all cursor-pointer">
               JOIN
@@ -336,8 +437,11 @@ export default function StudentDashboard() {
       </main>
 
       {/* 4. Footer ด้านล่าง */}
-      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium mt-auto print:hidden">
-        © 2026 ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
+        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
+        </p>
       </footer>
 
       {/* 1. Modal แจ้งเตือนกรณี "ยังไม่ได้ลงทะเบียนใบหน้า" */}
@@ -347,7 +451,7 @@ export default function StudentDashboard() {
             <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
               !
             </div>
-            
+
             <h3 className="text-xl font-black text-slate-800">ยังไม่ลงทะเบียนใบหน้า</h3>
             <p className="text-xs text-slate-500 mt-2 leading-relaxed">
               หากคุณเข้าชั้นเรียนตอนนี้ <br />
@@ -367,13 +471,10 @@ export default function StudentDashboard() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <Link
-                href="/student/face-enrollment"
-                className="w-full bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-xl font-bold text-xs shadow-sm transition-all text-center"
-              >
+              <Link className="w-full bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-xl font-bold text-xs shadow-sm transition-all text-center" href="/student/face-enrollment">
                 ลงทะเบียนใบหน้าก่อน
               </Link>
-              
+
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -403,7 +504,7 @@ export default function StudentDashboard() {
             <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
               ✓
             </div>
-            
+
             <h3 className="text-xl font-black text-slate-800">ยืนยันการเข้าร่วมชั้นเรียน</h3>
             <p className="text-xs text-slate-400 mt-1">
               คุณต้องการเข้าร่วมรายวิชารหัส <br />
@@ -450,7 +551,7 @@ export default function StudentDashboard() {
             <div className="w-12 h-12 bg-red-50 text-red-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
               !
             </div>
-            
+
             <h3 className="text-xl font-black text-slate-800">ยืนยันการออกจากระบบ</h3>
             <p className="text-xs text-slate-500 mt-1">
               คุณต้องการออกจากระบบการใช้งานในฐานะนักศึกษาใช่หรือไม่?
@@ -495,39 +596,39 @@ export default function StudentDashboard() {
               <div className="p-20 text-center text-slate-400 font-bold animate-pulse">กำลังดึงข้อมูล...</div>
             ) : selectedCourseData && (
               <div className="p-6 md:p-8 overflow-y-auto flex-1 space-y-6">
-                {/* กล่องสรุปสถานะ 4 ช่อง */}
+                {/* กล่องสรุปสถานะ 4 ช่อง (คำนวณจาก uniqueSummary ไม่นับวันซ้ำ) */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="bg-slate-50 p-4 rounded-xl text-center border border-slate-100">
                     <p className="text-[10px] font-bold text-slate-400 uppercase">ทั้งหมด</p>
-                    <p className="text-xl font-black text-slate-800">{selectedCourseData.summary.total}</p>
+                    <p className="text-xl font-black text-slate-800">{uniqueSummary.total}</p>
                   </div>
                   <div className="bg-emerald-50 p-4 rounded-xl text-center border border-emerald-100">
                     <p className="text-[10px] font-bold text-emerald-600 uppercase">มาเรียน</p>
-                    <p className="text-xl font-black text-emerald-700">{selectedCourseData.summary.present}</p>
+                    <p className="text-xl font-black text-emerald-700">{uniqueSummary.present}</p>
                   </div>
                   <div className="bg-amber-50 p-4 rounded-xl text-center border border-amber-100">
                     <p className="text-[10px] font-bold text-amber-600 uppercase">มาสาย</p>
-                    <p className="text-xl font-black text-amber-700">{selectedCourseData.summary.late}</p>
+                    <p className="text-xl font-black text-amber-700">{uniqueSummary.late}</p>
                   </div>
                   <div className="bg-red-50 p-4 rounded-xl text-center border border-red-100">
                     <p className="text-[10px] font-bold text-red-600 uppercase">ขาดเรียน</p>
-                    <p className="text-xl font-black text-red-700">{selectedCourseData.summary.absent}</p>
+                    <p className="text-xl font-black text-red-700">{uniqueSummary.absent}</p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* ตารางเพื่อนในคลาส: แสดง ลำดับ, รหัสประจำตัว, ชื่อ - นามสกุล */}
+                  {/* ตารางเพื่อนในคลาส */}
                   <div className="print:hidden">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider">เพื่อนในคลาส ({selectedCourseData.friends.length})</h3>
-                      <input 
-                        type="text" 
-                        placeholder="ค้นหาเพื่อน..." 
-                        className="text-xs px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none w-40 font-medium" 
-                        onChange={(e) => setSearchTerm(e.target.value)} 
+                      <input
+                        type="text"
+                        placeholder="ค้นหาเพื่อน..."
+                        className="text-xs px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none w-40 font-medium"
+                        onChange={(e) => setSearchTerm(e.target.value)}
                       />
                     </div>
-                    
+
                     <div className="border border-slate-200/80 rounded-xl overflow-hidden shadow-sm max-h-64 overflow-y-auto">
                       <table className="w-full text-xs text-left">
                         <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase border-b border-slate-100 sticky top-0 bg-slate-50 z-10">
@@ -569,7 +670,7 @@ export default function StudentDashboard() {
                     </div>
                   </div>
 
-                  {/* ประวัติการเข้าเรียน */}
+                  {/* ประวัติการเข้าเรียน (แสดงเฉพาะรายการที่ไม่ซ้ำวัน) */}
                   <div className="print:col-span-2">
                     <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider mb-3">ประวัติการเข้าเรียน</h3>
                     <div className="border border-slate-200/80 rounded-xl overflow-hidden shadow-sm max-h-64 overflow-y-auto">
@@ -578,18 +679,21 @@ export default function StudentDashboard() {
                           <tr><th className="px-4 py-2.5">วันที่</th><th className="px-4 py-2.5 text-right">สถานะ</th></tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {selectedCourseData.attendance.length > 0 ? selectedCourseData.attendance.map((a: any) => (
-                            <tr key={a.id} className="hover:bg-slate-50/50">
-                              <td className="px-4 py-2.5 font-bold text-slate-600">{new Date(a.createdAt || a.date).toLocaleDateString('th-TH')}</td>
-                              <td className="px-4 py-2.5 text-right">
-                                <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${
-                                  a.status === 'มาเรียน' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 
-                                  a.status === 'มาสาย' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                  'bg-red-50 text-red-700 border-red-200'
-                                }`}>{a.status}</span>
-                              </td>
-                            </tr>
-                          )) : (
+                          {uniqueAttendanceList.length > 0 ? (
+                            uniqueAttendanceList.map((a: any) => (
+                              <tr key={a.id} className="hover:bg-slate-50/50">
+                                <td className="px-4 py-2.5 font-bold text-slate-600">
+                                  {new Date(a.date || a.createdAt).toLocaleDateString('th-TH')}
+                                </td>
+                                <td className="px-4 py-2.5 text-right">
+                                  <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${a.status === 'มาเรียน' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                    a.status === 'มาสาย' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                      'bg-red-50 text-red-700 border-red-200'
+                                    }`}>{a.status}</span>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
                             <tr><td colSpan={2} className="p-8 text-center text-slate-400 italic">ยังไม่มีข้อมูลการเช็คชื่อ</td></tr>
                           )}
                         </tbody>
@@ -612,41 +716,41 @@ export default function StudentDashboard() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">ชื่อจริง</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     required
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500" 
-                    value={editData.firstName} 
-                    onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} 
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    value={editData.firstName}
+                    onChange={(e) => setEditData({ ...editData, firstName: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">นามสกุล</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     required
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500" 
-                    value={editData.lastName} 
-                    onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} 
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    value={editData.lastName}
+                    onChange={(e) => setEditData({ ...editData, lastName: e.target.value })}
                   />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">รหัสผ่านใหม่</label>
-                <input 
-                  type="password" 
-                  placeholder="ปล่อยว่างถ้าไม่ต้องการเปลี่ยน" 
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500" 
-                  value={editData.password} 
-                  onChange={(e) => setEditData({ ...editData, password: e.target.value })} 
+                <input
+                  type="password"
+                  placeholder="ปล่อยว่างถ้าไม่ต้องการเปลี่ยน"
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  value={editData.password}
+                  onChange={(e) => setEditData({ ...editData, password: e.target.value })}
                 />
               </div>
 
               <div className="pt-3 border-t border-slate-100">
                 <label className="block text-xs font-bold text-emerald-700 mb-1">โมเดลใบหน้า (Face Scan)</label>
                 <p className="text-[11px] text-slate-500 mb-3 font-medium">สามารถอัปเดตใบหน้าใหม่ได้ หากระบบสแกนเดิมมีปัญหา</p>
-                <Link href="/student/re-enroll" className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-all">
+                <Link className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-all" href="/student/re-enroll">
                   อัปเดตใบหน้าใหม่
                 </Link>
               </div>
@@ -658,6 +762,41 @@ export default function StudentDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Custom Modal: แจ้งเตือนสำเร็จ / ข้อผิดพลาด */}
+      {alertModal.show && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
+            {alertModal.isSuccess ? (
+              <div className="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-5">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+            ) : (
+              <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-5">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+                </svg>
+              </div>
+            )}
+
+            <h3 className="text-xl font-black text-slate-800 mb-1.5">{alertModal.title}</h3>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
+              {alertModal.message}
+            </p>
+
+            <button
+              type="button"
+              onClick={handleCloseAlertModal}
+              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? 'bg-[#16a34a] hover:bg-[#15803d]' : 'bg-[#dc2626] hover:bg-[#b91c1c]'
+                }`}
+            >
+              ตกลง
+            </button>
           </div>
         </div>
       )}

@@ -19,9 +19,11 @@ export async function GET(
       );
     }
 
-    // 2. ตรวจสอบว่ามีการส่ง query date มาเพื่อกรองเฉพาะวันหรือไม่
+    // 2. ตรวจสอบ query parameters (date, timeSlot, sessionType)
     const { searchParams } = new URL(request.url);
     const dateParam = searchParams.get('date');
+    const timeSlotParam = searchParams.get('timeSlot');
+    const sessionTypeParam = searchParams.get('sessionType');
 
     const whereClause: any = {
       courseId: courseId,
@@ -66,25 +68,61 @@ export async function GET(
       },
     });
 
-    // 4. แมปชื่อเต็ม student.name เพื่อความสมบูรณ์และพร้อมแสดงผลใน UI
-    const formattedSessions = sessions.map((session: any) => ({
-      ...session,
-      attendances: session.attendances.map((att: any) => {
+    // 4. แมปข้อมูล Session พร้อมสกัด sessionType และ timeSlot
+    let formattedSessions = sessions.map((session: any) => {
+      const sessionNote = session.note || '';
+      const isCompensation = sessionNote.includes('[สอนชดเชย]');
+      const sessionType = isCompensation ? 'COMPENSATION' : 'REGULAR';
+      
+      // สกัดช่วงเวลา timeSlot จาก note (เช่น "09:00-12:00" หรือ "13:00 - 16:00")
+      const timeSlotMatch = sessionNote.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/);
+      const timeSlot = timeSlotMatch ? timeSlotMatch[0].replace(/\s+/g, '') : '';
+
+      const records = session.attendances.map((att: any) => {
         const fullName = att.student
           ? `${att.student.firstName || ''} ${att.student.lastName || ''}`.trim() || 'ไม่ระบุชื่อ'
           : 'ไม่ระบุชื่อ';
 
         return {
+          id: att.id,
+          studentId: att.student?.id,
+          studentCode: att.student?.studentCode,
+          name: fullName,
+          status: att.status,
+          remark: att.remark,
+          time: att.date || att.createdAt,
+        };
+      });
+
+      return {
+        id: session.id,
+        roundNumber: session.roundNumber,
+        imageUrl: session.imageUrl,
+        note: session.note,
+        createdAt: session.createdAt,
+        sessionType,
+        timeSlot,
+        records,
+        attendances: session.attendances.map((att: any) => ({
           ...att,
           student: att.student
             ? {
                 ...att.student,
-                name: fullName,
+                name: `${att.student.firstName || ''} ${att.student.lastName || ''}`.trim() || 'ไม่ระบุชื่อ',
               }
             : null,
-        };
-      }),
-    }));
+        })),
+      };
+    });
+
+    // 5. กรองตาม timeSlot หรือ sessionType หากมีการระบุเจาะจงมาใน query
+    if (timeSlotParam || sessionTypeParam) {
+      formattedSessions = formattedSessions.filter((s: any) => {
+        const matchSlot = timeSlotParam ? (!s.timeSlot || s.timeSlot === timeSlotParam.replace(/\s+/g, '')) : true;
+        const matchType = sessionTypeParam ? s.sessionType === sessionTypeParam : true;
+        return matchSlot && matchType;
+      });
+    }
 
     return NextResponse.json({ success: true, data: formattedSessions });
   } catch (error: any) {
