@@ -1,3 +1,4 @@
+// attendance-web/app/teacher/course/[id]/students/page.tsx
 'use client';
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -381,34 +382,77 @@ export default function StudentListPage() {
       });
   }, [course?.students, searchTerm, sortOrder]);
 
+  // จัดกลุ่มและเรียงลำดับสัปดาห์ตามวันที่และเวลาเริ่มต้นของคาบเรียนให้ตรงกับหน้า Report
   const sessionAttendances = useMemo(() => {
-    if (!selectedStudent?.attendances) return [];
+    if (!selectedStudent?.attendances || !Array.isArray(selectedStudent.attendances)) return [];
 
     const sorted = [...selectedStudent.attendances].sort((a: any, b: any) => {
-      const dateA = new Date(a.date || a.createdAt).getTime();
-      const dateB = new Date(b.date || b.createdAt).getTime();
+      const dateA = new Date(a.createdAt || a.date || 0).getTime();
+      const dateB = new Date(b.createdAt || b.date || 0).getTime();
       return dateB - dateA;
     });
 
-    const seenSessionKeys = new Set<string>();
-    const result: any[] = [];
+    const sessionMap = new Map<string, any>();
 
     for (const record of sorted) {
       const d = new Date(record.date || record.createdAt);
-      const dateStr = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-      const timeSlotMatch = (record.remark || '').match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/);
-      const slot = timeSlotMatch ? timeSlotMatch[0].replace(/\s+/g, '') : '';
-      const isComp = (record.remark || '').includes('[สอนชดเชย]') ? 'COMP' : 'REG';
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateKey = `${year}-${month}-${day}`;
 
-      const sessionKey = record.sessionId ? `sess_${record.sessionId}` : `${dateStr}_${slot}_${isComp}`;
+      let timeKey = record.timeSlot || '';
+      if (!timeKey && record.remark) {
+        const match = record.remark.match(/\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}/);
+        if (match) {
+          timeKey = match[0].replace(/\s+/g, '');
+        }
+      }
+      if (!timeKey) {
+        const hours = d.getHours();
+        if (hours < 12) timeKey = '09:00-11:00';
+        else if (hours < 17) timeKey = '13:00-16:00';
+        else timeKey = '17:00-20:00';
+      }
 
-      if (!seenSessionKeys.has(sessionKey)) {
-        seenSessionKeys.add(sessionKey);
-        result.push(record);
+      const rawStart = (timeKey.split('-')[0] || '00:00').trim();
+      const startTime = rawStart.padStart(5, '0');
+
+      const isComp = (record.sessionType === 'COMPENSATION') || (record.remark || '').includes('[สอนชดเชย]');
+      const typeKey = isComp ? 'COMPENSATION' : 'REGULAR';
+      const uniqueKey = `${dateKey}_${timeKey}_${typeKey}`;
+
+      if (!sessionMap.has(uniqueKey)) {
+        sessionMap.set(uniqueKey, {
+          ...record,
+          dateKey,
+          timeKey,
+          startTime,
+          isComp,
+          uniqueKey,
+          rawTimestamp: new Date(record.date || record.createdAt || 0).getTime()
+        });
       }
     }
 
-    return result;
+    const chronologicalSessions = Array.from(sessionMap.values()).sort((a, b) => {
+      const dateCompare = a.dateKey.localeCompare(b.dateKey);
+      if (dateCompare !== 0) return dateCompare;
+
+      const timeCompare = a.startTime.localeCompare(b.startTime);
+      if (timeCompare !== 0) return timeCompare;
+
+      if (a.isComp !== b.isComp) {
+        return a.isComp ? 1 : -1;
+      }
+
+      return a.rawTimestamp - b.rawTimestamp;
+    });
+
+    return chronologicalSessions.map((session, idx) => ({
+      ...session,
+      weekNumber: idx + 1
+    }));
   }, [selectedStudent]);
 
   return (
@@ -425,21 +469,6 @@ export default function StudentListPage() {
           </Link>
         </div>
 
-        <div className="absolute top-6 right-6 hidden md:flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setIsSettingOpen(true)}
-            className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer"
-          >
-            ตั้งค่าวิชา
-          </button>
-          <Link
-            href={`/teacher/course/${courseId}`}
-            className="bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-xs transition-all"
-          >
-            เริ่มเช็คชื่อ
-          </Link>
-        </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
           ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
@@ -485,19 +514,21 @@ export default function StudentListPage() {
 
       {/* 3. Main Content */}
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 space-y-6">
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        
+        {/* กล่องข้อมูลรายวิชา (ปุ่มตั้งค่าวิชาอยู่ในกรอบเรียบร้อยแล้ว) */}
+        <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">รายวิชา</span>
             <h2 className="text-2xl font-black text-slate-800">{course?.courseCode || '...'} : {course?.courseName || '...'}</h2>
           </div>
           <div className="flex items-center gap-3">
-            <span className="bg-slate-50 text-slate-600 font-bold text-xs px-3.5 py-1.5 rounded-xl border border-slate-200/60">
+            <span className="bg-slate-50 text-slate-600 font-bold text-xs px-3.5 py-2 rounded-xl border border-slate-200/60">
               นักศึกษาทั้งหมด {course?.students?.length || 0} คน
             </span>
             <button
               type="button"
               onClick={() => setIsSettingOpen(true)}
-              className="md:hidden bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-1.5 rounded-xl border border-slate-200 transition-all cursor-pointer"
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2 rounded-xl border border-slate-200 transition-all cursor-pointer"
             >
               ตั้งค่าวิชา
             </button>
@@ -693,7 +724,7 @@ export default function StudentListPage() {
         </p>
       </footer>
 
-      {/* 5. Center Modal Popup: รายงานประวัตินักศึกษา */}
+      {/* 5. Center Modal Popup: รายงานประวัตินักศึกษา (แสดงผลยุบรวมตามสัปดาห์/คาบเรียน) */}
       {isReportModalOpen && selectedStudent && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
@@ -716,6 +747,7 @@ export default function StudentListPage() {
               </button>
             </div>
 
+            {/* กล่องสรุปสถานะการเข้าเรียนตามสัปดาห์ */}
             <div className="grid grid-cols-4 gap-2 mb-5">
               {[
                 { label: 'มาเรียน', val: 'มาเรียน', color: 'text-emerald-700', bg: 'bg-emerald-50' },
@@ -732,17 +764,34 @@ export default function StudentListPage() {
               ))}
             </div>
 
+            {/* รายการแสดงผลสรุปแยกตามสัปดาห์/คาบเรียน */}
             <div className="flex-1 overflow-y-auto pr-1 space-y-2">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">ประวัติการเช็คชื่อทั้งหมด</h3>
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  ประวัติการเข้าเรียนรายสัปดาห์ ({sessionAttendances.length} สัปดาห์/คาบเรียน)
+                </h3>
+              </div>
 
               {sessionAttendances.map((record: any) => (
-                <div key={record.id} className="flex justify-between items-center p-3.5 rounded-2xl bg-slate-50 border border-slate-200/70 hover:bg-slate-100/60 transition-colors">
+                <div key={record.uniqueKey || record.id} className="flex justify-between items-center p-3.5 rounded-2xl bg-slate-50 border border-slate-200/70 hover:bg-slate-100/60 transition-colors">
                   <div className="pr-3">
-                    <p className="text-xs font-bold text-slate-800">
-                      {new Date(record.date || record.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
-                    </p>
-                    <p className="text-[11px] font-medium text-slate-400 mt-0.5">
-                      {new Date(record.time || record.date || record.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                        สัปดาห์ที่ {record.weekNumber}
+                      </span>
+                      {record.isComp && (
+                        <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                          คาบสอนชดเชย
+                        </span>
+                      )}
+                      <span className="text-xs font-bold text-slate-800">
+                        {new Date(record.date || record.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] font-medium text-slate-400">
+                      เวลาเช็คชื่อ: {new Date(record.time || record.date || record.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                      {record.timeKey && <span className="ml-1 font-mono font-bold text-slate-600">({record.timeKey} น.)</span>}
                     </p>
                     {record.remark && (
                       <p className="text-[11px] text-slate-500 mt-1 font-medium">
@@ -1001,16 +1050,12 @@ export default function StudentListPage() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
             {alertModal.isSuccess ? (
-              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-sm">
+                PASS
               </div>
             ) : (
-              <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
-                </svg>
+              <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-sm">
+                ERR
               </div>
             )}
 

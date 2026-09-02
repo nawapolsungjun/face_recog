@@ -1,3 +1,4 @@
+// attendance-web/app/admin/users/page.tsx
 'use client';
 import { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -292,7 +293,9 @@ function AdminUsersContent() {
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 mb-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="relative w-full sm:max-w-md">
             <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-400">
-              🔍
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
             </span>
             <input
               type="text"
@@ -307,7 +310,7 @@ function AdminUsersContent() {
                 onClick={() => setSearchTerm('')}
                 className="absolute inset-y-0 right-0 flex items-center pr-3 text-xs text-slate-400 hover:text-slate-600 font-bold"
               >
-                ✕
+                &times;
               </button>
             )}
           </div>
@@ -432,13 +435,13 @@ function AdminUsersContent() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 relative">
 
-            {/* ปุ่มปิด Modal มุมบนขวา (✕) */}
+            {/* ปุ่มปิด Modal มุมบนขวา */}
             <button
               type="button"
               onClick={() => setEditingUser(null)}
               className="absolute top-6 right-6 text-slate-300 hover:text-slate-600 text-xl font-bold transition-colors cursor-pointer"
             >
-              ✕
+              &times;
             </button>
 
             {/* หัวเรื่อง Modal */}

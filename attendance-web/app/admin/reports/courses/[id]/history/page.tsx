@@ -1,3 +1,4 @@
+// attendance-web/app/admin/reports/courses/[id]/history/page.tsx
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
@@ -8,6 +9,7 @@ export default function AdminCourseHistoryPage() {
   const searchParams = useSearchParams();
   const courseId = params.id as string;
   const filterDateParam = searchParams.get('date');
+  const filterTimeSlotParam = searchParams.get('timeSlot'); // รับพารามิเตอร์ช่วงเวลา (เช่น 09:00-11:00)
 
   const [courseInfo, setCourseInfo] = useState<{ courseName: string; courseCode: string; teacher?: any } | null>(null);
   const [sessions, setSessions] = useState<any[]>([]);
@@ -29,17 +31,37 @@ export default function AdminCourseHistoryPage() {
         setCourseInfo(courseJson.data);
       }
 
-      // 2. ดึงประวัติรอบการเช็คชื่อ
-      const url = filterDateParam
-        ? `/api/attendance/history/${courseId}?date=${filterDateParam}`
+      // 2. ดึงประวัติรอบการเช็คชื่อ พร้อมส่ง timeSlot ไปใน Query String
+      const queryParams = new URLSearchParams();
+      if (filterDateParam) queryParams.append('date', filterDateParam);
+      if (filterTimeSlotParam) queryParams.append('timeSlot', filterTimeSlotParam);
+
+      const queryString = queryParams.toString();
+      const url = queryString
+        ? `/api/attendance/history/${courseId}?${queryString}`
         : `/api/attendance/history/${courseId}`;
 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const json = await res.json();
+
       if (json.success && Array.isArray(json.data)) {
-        setSessions(json.data);
+        let list = json.data;
+
+        // 3. กรองช่วงเวลาอย่างแม่นยำ ป้องกันคาบอื่นปะปนเข้ามา
+        if (filterTimeSlotParam) {
+          const targetSlot = filterTimeSlotParam.trim();
+          list = list.filter((session: any) => {
+            if (session.timeSlot && session.timeSlot.includes(targetSlot)) return true;
+            if (session.note && session.note.includes(targetSlot)) return true;
+            const sampleRecord = (session.attendances || session.records || []).find((r: any) => r.remark);
+            if (sampleRecord?.remark && sampleRecord.remark.includes(targetSlot)) return true;
+            return false;
+          });
+        }
+
+        setSessions(list);
       } else {
         setSessions([]);
       }
@@ -48,7 +70,7 @@ export default function AdminCourseHistoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [courseId, filterDateParam]);
+  }, [courseId, filterDateParam, filterTimeSlotParam]);
 
   useEffect(() => {
     if (courseId) {
@@ -77,7 +99,7 @@ export default function AdminCourseHistoryPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8">
+      <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 mb-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
             <div>
@@ -85,11 +107,20 @@ export default function AdminCourseHistoryPage() {
               <p className="text-xl font-black text-slate-800">
                 วิชา: <span className="text-xl font-black text-slate-800">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName ? `${courseInfo.courseName}` : ''}
               </p>
-              {filterDateParam && (
+              {(filterDateParam || filterTimeSlotParam) && (
                 <p className="text-xs text-slate-500 font-bold mt-0.5">
-                  กรองเฉพาะวันที่: <span className="text-emerald-700 font-mono">{filterDateParam}</span>
+                  {filterDateParam && (
+                    <>
+                      กรองเฉพาะวันที่: <span className="text-emerald-700 font-mono">{filterDateParam}</span>
+                    </>
+                  )}
+                  {filterTimeSlotParam && (
+                    <span className="ml-2">
+                      ช่วงเวลา: <span className="text-emerald-700 font-mono">[{filterTimeSlotParam} น.]</span>
+                    </span>
+                  )}
                   <Link href={`/admin/reports/courses/${courseId}/history`} className="ml-2 text-xs text-slate-400 hover:text-slate-600 underline">
-                    (แสดงทุกวัน)
+                    (แสดงทั้งหมด)
                   </Link>
                 </p>
               )}
@@ -182,7 +213,7 @@ export default function AdminCourseHistoryPage() {
         )}
       </main>
 
-      {/* 4. Footer */}
+      {/* Footer */}
       <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
         © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
@@ -190,11 +221,10 @@ export default function AdminCourseHistoryPage() {
         </p>
       </footer>
 
-      {/* Modal แสดงรายละเอียดการเช็คชื่อ (UI เดียวกันกับหน้าอาจารย์) */}
+      {/* Modal แสดงรายละเอียดการเช็คชื่อ */}
       {selectedSessionDetail && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
-            
             {/* Header ของ Modal */}
             <div className="flex justify-between items-center mb-5 border-b border-slate-100 pb-3">
               <div>

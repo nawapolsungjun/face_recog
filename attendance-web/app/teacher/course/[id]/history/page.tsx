@@ -1,11 +1,15 @@
+// attendance-web/app/teacher/course/[id]/history/page.tsx
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 export default function AttendanceHistoryPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const courseId = params.id as string;
+  const filterDateParam = searchParams.get('date');
+  const filterTimeSlotParam = searchParams.get('timeSlot');
 
   const [courseInfo, setCourseInfo] = useState<{ courseName: string; courseCode: string } | null>(null);
   const [sessions, setSessions] = useState<any[]>([]);
@@ -33,25 +37,50 @@ export default function AttendanceHistoryPage() {
     }
   }, [courseId]);
 
-  // ดึงประวัติการเช็คชื่อตามรอบ
+  // ดึงประวัติการเช็คชื่อตามรอบ พร้อมรองรับการกรองตามวันที่และช่วงเวลา
   const fetchHistory = useCallback(async () => {
     setLoading(true);
     const token = getAuthToken();
     try {
-      let res = await fetch(`/api/teacher/course/${courseId}/history`, {
+      const queryParams = new URLSearchParams();
+      if (filterDateParam) queryParams.append('date', filterDateParam);
+      if (filterTimeSlotParam) queryParams.append('timeSlot', filterTimeSlotParam);
+
+      const queryString = queryParams.toString();
+      let url = queryString
+        ? `/api/attendance/history/${courseId}?${queryString}`
+        : `/api/attendance/history/${courseId}`;
+
+      let res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (!res.ok) {
-        // Fallback endpoint
-        res = await fetch(`/api/attendance/history/${courseId}`, {
+        url = queryString
+          ? `/api/teacher/course/${courseId}/history?${queryString}`
+          : `/api/teacher/course/${courseId}/history`;
+        res = await fetch(url, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
       }
 
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
-        setSessions(json.data);
+        let list = json.data;
+
+        // กรองช่วงเวลาอย่างแม่นยำ ป้องกันคาบชดเชยหรือช่วงเวลาอื่นปะปน
+        if (filterTimeSlotParam) {
+          const targetSlot = filterTimeSlotParam.trim();
+          list = list.filter((session: any) => {
+            if (session.timeSlot && session.timeSlot.includes(targetSlot)) return true;
+            if (session.note && session.note.includes(targetSlot)) return true;
+            const sampleRecord = (session.attendances || session.records || []).find((r: any) => r.remark);
+            if (sampleRecord?.remark && sampleRecord.remark.includes(targetSlot)) return true;
+            return false;
+          });
+        }
+
+        setSessions(list);
       } else {
         setSessions([]);
       }
@@ -61,7 +90,7 @@ export default function AttendanceHistoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [courseId]);
+  }, [courseId, filterDateParam, filterTimeSlotParam]);
 
   useEffect(() => {
     if (courseId) {
@@ -73,14 +102,14 @@ export default function AttendanceHistoryPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
 
-      {/* 1. Header ด้านบนตาม Style Canva (หัวข้อตรงกลาง 100%) */}
+      {/* 1. Header */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative print:hidden">
         <div className="absolute top-6 left-6">
           <Link
-            href="/teacher/dashboard"
+            href={`/teacher/report/${courseId}`}
             className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-2 text-xs uppercase tracking-wider transition-all"
           >
-            ← Back to Dashboard
+            ← Back to Report
           </Link>
         </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
@@ -136,14 +165,33 @@ export default function AttendanceHistoryPage() {
         </div>
       </nav>
 
-      {/* 3. Main Content: รายการประวัติการเช็คชื่อตามรอบ */}
-      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8">
+      {/* 3. Main Content */}
+      <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
 
         {/* การ์ดสรุปข้อมูล */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">ประวัติการบันทึก</span>
-            <h2 className="text-2xl font-black text-slate-800">รายการเช็คชื่อย้อนหลังตามรอบ</h2>
+            <span className="text-[18px] font-bold text-slate-400">ประวัติการบันทึก</span>
+            <h2 className="text-xl font-black text-slate-800">
+              วิชา: <span className="font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName ? `${courseInfo.courseName}` : ''}
+            </h2>
+            {(filterDateParam || filterTimeSlotParam) && (
+              <p className="text-xs text-slate-500 font-bold mt-1">
+                {filterDateParam && (
+                  <>
+                    กรองเฉพาะวันที่: <span className="text-emerald-700 font-mono">{filterDateParam}</span>
+                  </>
+                )}
+                {filterTimeSlotParam && (
+                  <span className="ml-2">
+                    ช่วงเวลา: <span className="text-emerald-700 font-mono">[{filterTimeSlotParam} น.]</span>
+                  </span>
+                )}
+                <Link href={`/teacher/course/${courseId}/history`} className="ml-2 text-xs text-slate-400 hover:text-slate-600 underline">
+                  (แสดงทั้งหมด)
+                </Link>
+              </p>
+            )}
           </div>
           <span className="bg-emerald-50 text-emerald-700 font-bold text-xs px-3.5 py-1.5 rounded-xl border border-emerald-100">
             บันทึกแล้วทั้งหมด {sessions.length} รอบ
@@ -151,7 +199,7 @@ export default function AttendanceHistoryPage() {
         </div>
 
         {loading ? (
-          <div className="p-16 text-center font-bold text-slate-400 animate-pulse bg-white rounded-2xl border border-slate-200/80">
+          <div className="p-16 text-center font-bold text-slate-400 animate-pulse bg-white rounded-2xl border border-slate-200/80 text-xs">
             กำลังโหลดประวัติการเช็คชื่อ...
           </div>
         ) : sessions.length > 0 ? (
@@ -161,6 +209,12 @@ export default function AttendanceHistoryPage() {
                 ? session.imageUrl.split(',').filter((url: string) => url.trim() !== '')
                 : [];
               const roundNum = session.roundNumber || session.round || (sessions.length - index);
+              const dateFormatted = session.createdAt
+                ? new Date(session.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })
+                : '-';
+              const timeFormatted = session.createdAt
+                ? new Date(session.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false })
+                : '-';
 
               return (
                 <div
@@ -172,11 +226,8 @@ export default function AttendanceHistoryPage() {
                       <span className="bg-emerald-50 text-emerald-700 font-bold px-3 py-1 rounded-xl text-xs border border-emerald-100">
                         ครั้งที่ {roundNum}
                       </span>
-                      <span className="text-slate-400 font-medium text-xs">
-                        {session.createdAt ? new Date(session.createdAt).toLocaleString('th-TH', {
-                          dateStyle: 'short',
-                          timeStyle: 'short',
-                        }) : '-'}
+                      <span className="text-slate-400 font-mono font-bold text-xs">
+                        {dateFormatted} {timeFormatted} น.
                       </span>
                     </div>
 
@@ -188,9 +239,9 @@ export default function AttendanceHistoryPage() {
                           className="w-full h-full object-cover"
                         />
                         {imageList.length > 1 && (
-                          <div className="absolute bottom-2 right-2 bg-slate-900/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-sm">
+                          <span className="absolute bottom-2 right-2 bg-slate-900/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-sm">
                             +{imageList.length - 1} รูปเพิ่ม
-                          </div>
+                          </span>
                         )}
                       </div>
                     ) : (
@@ -199,14 +250,20 @@ export default function AttendanceHistoryPage() {
                       </div>
                     )}
 
-                    <p className="text-xs font-bold text-slate-600 mb-1">
-                      จำนวนรายการเช็คชื่อ: <span className="text-emerald-700 font-black">{session.attendances?.length || session.totalChecked || 0}</span> คน
+                    <p className="text-xs text-slate-600 font-bold mb-1">
+                      จำนวนรายการเช็คชื่อ: <span className="text-emerald-700 font-black">{session.attendances?.length || session.records?.length || session.totalChecked || 0}</span> คน
                     </p>
+                    {session.note && (
+                      <p className="text-[11px] text-slate-400 italic mb-3 line-clamp-1">
+                        {session.note}
+                      </p>
+                    )}
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => setSelectedSession({ ...session, roundNumber: roundNum })}
-                    className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 rounded-xl transition-all shadow-sm cursor-pointer"
+                    className="w-full mt-3 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer"
                   >
                     ดูรายละเอียดรอบนี้
                   </button>
@@ -216,13 +273,13 @@ export default function AttendanceHistoryPage() {
           </div>
         ) : (
           <div className="bg-white p-16 rounded-2xl text-center text-slate-400 font-bold text-xs border border-slate-200/80">
-            ยังไม่มีประวัติการอัปโหลดเช็คชื่อตามรอบในวิชานี้
+            ไม่พบประวัติการบันทึกการเช็คชื่อตามเงื่อนไขที่เลือก
           </div>
         )}
       </main>
 
-      {/* 4. Footer ด้านล่าง */}
-      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
+      {/* 4. Footer */}
+      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm mt-auto">
         © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
           สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
@@ -232,14 +289,20 @@ export default function AttendanceHistoryPage() {
       {/* Modal แสดงรายละเอียดการเช็คชื่อ */}
       {selectedSession && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-5 border-b border-slate-100 pb-3">
-              <h3 className="font-black text-lg text-slate-800">
-                รายละเอียดการเช็คชื่อ ครั้งที่ {selectedSession.roundNumber}
-              </h3>
+              <div>
+                <h3 className="font-black text-lg text-slate-800">
+                  รายละเอียดการเช็คชื่อ ครั้งที่ {selectedSession.roundNumber}
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  เวลาบันทึก: {new Date(selectedSession.createdAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'medium' })} น.
+                </p>
+              </div>
               <button
+                type="button"
                 onClick={() => setSelectedSession(null)}
-                className="text-slate-300 hover:text-slate-600 font-bold text-2xl cursor-pointer"
+                className="text-slate-400 hover:text-slate-700 font-bold text-2xl cursor-pointer p-1"
               >
                 &times;
               </button>
@@ -270,30 +333,42 @@ export default function AttendanceHistoryPage() {
               </div>
             )}
 
-            <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden">
-              {selectedSession.attendances && selectedSession.attendances.length > 0 ? (
-                selectedSession.attendances.map((att: any) => {
-                  const studentName = `${att.student?.firstName || ''} ${att.student?.lastName || ''}`.trim() || att.student?.name || 'ไม่ระบุชื่อ';
+            <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-2xl overflow-hidden">
+              {(selectedSession.attendances || selectedSession.records) &&
+              (selectedSession.attendances?.length > 0 || selectedSession.records?.length > 0) ? (
+                (selectedSession.attendances || selectedSession.records).map((att: any, idx: number) => {
+                  const studentName =
+                    att.student?.name ||
+                    `${att.student?.firstName || ''} ${att.student?.lastName || ''}`.trim() ||
+                    att.name ||
+                    'ไม่ระบุชื่อ';
+                  const studentCode = att.student?.studentCode || att.studentCode || '-';
 
                   return (
-                    <div key={att.id} className="p-3.5 flex justify-between items-center bg-white hover:bg-slate-50 transition-colors">
+                    <div key={att.id || idx} className="p-3.5 flex justify-between items-center bg-white hover:bg-slate-50 transition-colors">
                       <div>
                         <p className="font-mono text-xs font-bold text-emerald-700">
-                          {att.student?.studentCode}
+                          {studentCode}
                         </p>
                         <p className="font-bold text-xs md:text-sm text-slate-800">
                           {studentName}
                         </p>
+                        {att.remark && (
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            {att.remark}
+                          </p>
+                        )}
                       </div>
                       <span
-                        className={`text-xs font-bold px-3 py-1 rounded-xl border ${att.status === 'มาเรียน'
+                        className={`text-xs font-bold px-3 py-1 rounded-xl border shrink-0 ${
+                          att.status === 'มาเรียน'
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                             : att.status === 'มาสาย'
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : att.status === 'ลา'
-                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                : 'bg-red-50 text-red-700 border-red-200'
-                          }`}
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : att.status === 'ลา'
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : 'bg-red-50 text-red-700 border-red-200'
+                        }`}
                       >
                         {att.status}
                       </span>

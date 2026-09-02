@@ -251,9 +251,11 @@ export default function RegisterUserPage() {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="bg-white text-[#0f766e] py-4 px-4 text-center text-xs font-medium border-t border-slate-100 mt-auto">
-        ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
+        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        <p className="text-emerald-100 font-medium text-xs md:text-sm">
+          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
+        </p>
       </footer>
 
       {/* 3. Modal Popup ตรวจสอบและยืนยันข้อมูลผู้ใช้ */}

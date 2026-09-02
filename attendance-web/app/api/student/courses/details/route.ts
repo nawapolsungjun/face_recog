@@ -13,12 +13,17 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: 'ข้อมูลไม่ครบถ้วน' }, { status: 400 });
     }
 
-    const studentId = parseInt(studentIdParam, 10);
-
-    // 1. ดึงข้อมูลรายวิชาและเพื่อนร่วมคลาส (ดึง firstName และ lastName แทน name)
+    // 1. ดึงข้อมูลรายวิชา, ผู้สอน (ดึง id, firstName, lastName จาก Teacher โดยตรง) และเพื่อนร่วมคลาส
     const course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
+        teacher: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          }
+        },
         students: {
           select: {
             id: true,
@@ -34,14 +39,48 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: 'ไม่พบรายวิชา' }, { status: 404 });
     }
 
-    // 2. ดึงประวัติการเข้าเรียนของนักศึกษาคนนี้ในวิชานี้
-    const attendances = await prisma.attendance.findMany({
-      where: {
-        courseId: courseId,
-        studentId: studentId
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    // 2. ค้นหา numeric studentId (Int) สำหรับตาราง Attendance
+    let numericStudentId: number | null = null;
+    const parsed = parseInt(studentIdParam, 10);
+
+    if (!isNaN(parsed)) {
+      numericStudentId = parsed;
+    } else {
+      // หาก studentIdParam เป็น CUID ของ User ให้ค้นหา student ที่ตรงกัน
+      const userRecord = await prisma.user.findFirst({
+        where: { id: studentIdParam },
+        select: {
+          id: true,
+          student: {
+            select: { id: true, studentCode: true }
+          }
+        }
+      });
+
+      if (userRecord?.student?.id) {
+        numericStudentId = Number(userRecord.student.id);
+      } else {
+        // Fallback: หากยังไม่พบ ให้หา student ในคอร์สนี้จาก studentCode หรือ id
+        const matchedStudent = course.students.find(
+          (s: any) => String(s.id) === studentIdParam || s.studentCode === studentIdParam
+        );
+        if (matchedStudent) {
+          numericStudentId = Number(matchedStudent.id);
+        }
+      }
+    }
+
+    // 3. ดึงประวัติการเข้าเรียนของนักศึกษาคนนี้ในวิชานี้
+    let attendances: any[] = [];
+    if (numericStudentId !== null && !isNaN(numericStudentId)) {
+      attendances = await prisma.attendance.findMany({
+        where: {
+          courseId: courseId,
+          studentId: numericStudentId
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+    }
 
     const present = attendances.filter((a: any) => a.status === 'มาเรียน').length;
     const late = attendances.filter((a: any) => a.status === 'มาสาย').length;
@@ -57,12 +96,18 @@ export async function GET(request: Request) {
       name: `${s.firstName || ''} ${s.lastName || ''}`.trim() || 'ไม่ระบุชื่อ'
     }));
 
+    // ประกอบชื่ออาจารย์ผู้สอนจาก Teacher
+    const teacherName = course.teacher
+      ? `${course.teacher.firstName || ''} ${course.teacher.lastName || ''}`.trim() || 'อาจารย์ประจำวิชา'
+      : 'ไม่ระบุผู้สอน';
+
     return NextResponse.json({
       success: true,
       data: {
         id: course.id,
         courseCode: course.courseCode,
         courseName: course.courseName,
+        teacherName,
         friends: formattedFriends,
         attendance: attendances,
         summary: {

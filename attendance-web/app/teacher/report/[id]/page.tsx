@@ -79,7 +79,7 @@ export default function AttendanceReportPage() {
 
   const formatDisplayRemark = (str: string) => {
     if (!str) return '';
-    const match = str.match(/\(แก้ไขโดยอาจารย์เมื่อ[^)]*?\)/i);
+    const match = str.match(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/i);
     const baseRemark = cleanRemarkString(str);
     if (match) {
       return baseRemark ? `${baseRemark} ${match[0]}` : match[0];
@@ -94,14 +94,6 @@ export default function AttendanceReportPage() {
     const hours = String(d.getHours()).padStart(2, '0');
     const minutes = String(d.getMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
-  };
-
-  const getLocalDateString = (dateObj: Date | string) => {
-    const d = new Date(dateObj);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
   };
 
   // ดึงรายละเอียดรายวิชาและประวัติการเช็คชื่อทั้งหมด
@@ -424,10 +416,24 @@ export default function AttendanceReportPage() {
     return item.status === filter;
   });
 
+  // 🌟 แยกคาบสอนปกติและคาบสอนชดเชย หรือช่วงเวลาต่างกัน (เช่น เช้า/บ่าย) ให้ออกมาเป็นแต่ละแถวอิสระ
+  const uniqueWeeksSummaryData = useMemo(() => {
+    if (!Array.isArray(weeksSummaryData)) return [];
+    const map = new Map<string, any>();
+    for (const item of weeksSummaryData) {
+      const dateKey = item.rawDate || item.dateStr || '';
+      const timeKey = item.timeStr || '00:00';
+      const typeKey = item.sessionType || 'REGULAR';
+      const uniqueKey = `${dateKey}_${timeKey}_${typeKey}`;
+      map.set(uniqueKey, item);
+    }
+    return Array.from(map.values());
+  }, [weeksSummaryData]);
+
   const TOTAL_WEEKS = 15;
   const weeksList = Array.from({ length: TOTAL_WEEKS }, (_, i) => {
     const weekNumber = i + 1;
-    const weekData = weeksSummaryData[i];
+    const weekData = uniqueWeeksSummaryData[i];
     const savedLocalNote = typeof window !== 'undefined' ? localStorage.getItem(`course_${courseId}_week_${weekNumber}_note`) : '';
 
     if (weekData) {
@@ -436,6 +442,7 @@ export default function AttendanceReportPage() {
         dateStr: weekData.dateStr,
         rawDate: weekData.rawDate,
         timeStr: weekData.timeStr || '',
+        sessionType: weekData.sessionType || 'REGULAR',
         present: weekData.present,
         late: weekData.late,
         leave: weekData.leave,
@@ -452,6 +459,7 @@ export default function AttendanceReportPage() {
       dateStr: 'ยังไม่บันทึก',
       rawDate: '',
       timeStr: '',
+      sessionType: 'REGULAR',
       present: 0,
       late: 0,
       leave: 0,
@@ -480,12 +488,11 @@ export default function AttendanceReportPage() {
       return `คาบบ่าย (${slot} น.)`;
     }
     if (slot.includes('17:') || slot.includes('18:') || slot.includes('19:') || slot.includes('20:')) {
-      return `คาบค่ำ (${slot} น.)`;
+      return `คาบพิเศษ (${slot} น.)`;
     }
     return `รอบเวลา ${slot} น.`;
   };
 
-  // ✅ แมปข้อมูลนักศึกษาและผลเช็คชื่อ 15 สัปดาห์ส่งไปยัง CourseAttendanceSheetPrintForm
   const printStudentsData = useMemo(() => {
     const baseStudents = courseInfo?.students?.length > 0 ? courseInfo.students : dailyReport.data;
     if (!baseStudents || baseStudents.length === 0) return [];
@@ -550,9 +557,7 @@ export default function AttendanceReportPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
 
-      {/* ========================================================================= */}
-      {/* 1. ส่วนหน้าจอปกติ (ซ่อนอัตโนมัติเมื่อสั่งพิมพ์ ด้วย print:hidden)             */}
-      {/* ========================================================================= */}
+      {/* 1. ส่วนหน้าจอปกติ (ซ่อนอัตโนมัติเมื่อสั่งพิมพ์) */}
       <div className="print:hidden flex flex-col flex-1">
 
         {/* 1. Header */}
@@ -899,7 +904,9 @@ export default function AttendanceReportPage() {
                             >
                               {week.dateStr !== 'ยังไม่บันทึก' ? (
                                 <div>
-                                  <span className="text-emerald-800 font-bold block">{week.dateStr}</span>
+                                  <span className="text-emerald-800 font-bold block">
+                                    {week.dateStr} {week.sessionType === 'COMPENSATION' && <span className="text-amber-600 text-[10px] ml-1">(ชดเชย)</span>}
+                                  </span>
                                   {week.timeStr && (
                                     <span className="text-[11px] text-slate-500 font-medium block mt-0.5">
                                       {getTimeSlotLabel(week.timeStr)}
@@ -1236,7 +1243,7 @@ export default function AttendanceReportPage() {
       </div>
 
       {/* ========================================================================= */}
-      {/* 2. แบบฟอร์มทางการ มทร.กรุงเทพ (แสดงผลเฉพาะตอนสั่งพิมพ์ / Export PDF)         */}
+      {/* 2. แบบฟอร์มทางการ มทร.กรุงเทพ (แสดงผลเฉพาะตอนสั่งพิมพ์ / Export PDF)          */}
       {/* ========================================================================= */}
       <CourseAttendanceSheetPrintForm
         courseInfo={{

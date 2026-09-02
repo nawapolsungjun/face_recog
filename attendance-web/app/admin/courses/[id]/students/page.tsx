@@ -1,3 +1,4 @@
+// attendance-web/app/admin/courses/[id]/students/page.tsx
 'use client';
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
@@ -11,6 +12,7 @@ export default function AdminCourseStudentsPage() {
 
   const [course, setCourse] = useState<any>(null);
   const [allStudents, setAllStudents] = useState<any[]>([]);
+  const [courseHistory, setCourseHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -51,6 +53,8 @@ export default function AdminCourseStudentsPage() {
     isSuccess: true,
   });
 
+  const getAuthToken = () => localStorage.getItem('admin_token') || localStorage.getItem('token');
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (selectBoxRef.current && !selectBoxRef.current.contains(event.target as Node)) {
@@ -61,27 +65,26 @@ export default function AdminCourseStudentsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // ดึงข้อมูลทั้งรายชื่อนักศึกษาและประวัติการเช็คชื่อทั้งหมดพร้อมกัน
   const fetchData = useCallback(async () => {
     setLoading(true);
+    const token = getAuthToken();
     try {
-      const res = await fetch(`/api/admin/courses/${courseId}/students`);
-      const json = await res.json();
+      const [resStudents, resHistory] = await Promise.all([
+        fetch(`/api/admin/courses/${courseId}/students`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`/api/attendance/history/${courseId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).catch(() => null)
+      ]);
+
+      const json = await resStudents.json();
       if (json.success && json.data) {
         setCourse(json.data.course);
         setAllStudents(json.data.allStudents || []);
         setEditCode(json.data.course.courseCode || '');
         setEditName(json.data.course.courseName || '');
-
-        // อัปเดตข้อมูลนักศึกษาใน modal รายงานให้สดใหม่อยู่เสมอ
-        setSelectedStudentForReport((curr: any) => {
-          if (!curr) return null;
-          const fresh = json.data.course.students?.find((s: any) => s.id === curr.id);
-          if (fresh) {
-            const freshName = `${fresh.firstName || ''} ${fresh.lastName || ''}`.trim() || fresh.name || 'ไม่ระบุชื่อ';
-            return { ...fresh, displayName: freshName };
-          }
-          return curr;
-        });
       } else {
         setAlertModal({
           show: true,
@@ -89,6 +92,16 @@ export default function AdminCourseStudentsPage() {
           message: json.error || 'ไม่พบข้อมูลรายวิชา',
           isSuccess: false,
         });
+      }
+
+      if (resHistory && resHistory.ok) {
+        const historyJson = await resHistory.json();
+        const rawHistory = Array.isArray(historyJson.data)
+          ? historyJson.data
+          : Array.isArray(historyJson)
+          ? historyJson
+          : [];
+        setCourseHistory(rawHistory);
       }
     } catch (err) {
       console.error("Error fetching students:", err);
@@ -100,6 +113,47 @@ export default function AdminCourseStudentsPage() {
   useEffect(() => {
     if (courseId) fetchData();
   }, [courseId, fetchData]);
+
+  // ฟังก์ชันเปิด Modal รายงาน พร้อมดึงประวัติการเข้าเรียนของนักศึกษาคนนั้นๆ
+  const handleOpenStudentReport = (student: any, displayName: string) => {
+    let studentAttendances: any[] = [];
+
+    if (Array.isArray(student.attendances) && student.attendances.length > 0) {
+      studentAttendances = student.attendances;
+    } else if (courseHistory.length > 0) {
+      const stId = String(student.id || '');
+      const stCode = String(student.studentCode || '').trim();
+
+      courseHistory.forEach((session: any) => {
+        const sessionList = session.attendances || session.records || [];
+        const matched = sessionList.find((r: any) => {
+          const rId = String(r.studentId || r.student?.id || r.id || '');
+          const rCode = String(r.studentCode || r.student?.studentCode || '').trim();
+          return (stId && rId === stId) || (stCode && rCode === stCode);
+        });
+
+        if (matched) {
+          studentAttendances.push({
+            id: matched.id || `${session.id}_${student.id}`,
+            date: matched.date || session.date || session.createdAt,
+            time: matched.time || session.createdAt,
+            status: matched.status,
+            remark: matched.remark || session.remark || session.note || '',
+            sessionType: session.sessionType,
+            timeSlot: session.timeSlot,
+            createdAt: session.createdAt
+          });
+        }
+      });
+    }
+
+    setSelectedStudentForReport({
+      ...student,
+      displayName,
+      attendances: studentAttendances
+    });
+    setIsReportModalOpen(true);
+  };
 
   const handleUpdateCourseDetails = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,10 +168,14 @@ export default function AdminCourseStudentsPage() {
     }
 
     setIsSavingCourse(true);
+    const token = getAuthToken();
     try {
       const res = await fetch(`/api/admin/courses/${courseId}/students`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ courseCode: editCode.trim(), courseName: editName.trim() })
       });
       const json = await res.json();
@@ -174,10 +232,14 @@ export default function AdminCourseStudentsPage() {
     }
 
     setIsSubmitting(true);
+    const token = getAuthToken();
     try {
       const res = await fetch(`/api/admin/courses/${courseId}/students`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ studentId: selectedStudentId })
       });
       const json = await res.json();
@@ -213,10 +275,12 @@ export default function AdminCourseStudentsPage() {
 
   const handleConfirmRemoveStudent = async () => {
     if (!studentToRemove) return;
+    const token = getAuthToken();
 
     try {
       const res = await fetch(`/api/admin/courses/${courseId}/students?studentId=${studentToRemove.id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       const json = await res.json();
       if (json.success) {
@@ -277,8 +341,10 @@ export default function AdminCourseStudentsPage() {
         if (!searchTerm.trim()) return true;
         const term = searchTerm.toLowerCase().trim();
         const code = (student.studentCode || '').toLowerCase();
-        const studentName = `${student.firstName || ''} ${student.lastName || ''} ${student.name || ''}`.toLowerCase();
-        return code.includes(term) || studentName.includes(term);
+        const firstName = (student.firstName || '').toLowerCase();
+        const lastName = (student.lastName || '').toLowerCase();
+        const fullName = `${student.firstName || ''} ${student.lastName || ''} ${student.name || ''}`.toLowerCase();
+        return code.includes(term) || firstName.includes(term) || lastName.includes(term) || fullName.includes(term);
       })
       .sort((a: any, b: any) => {
         const codeA = a.studentCode || '';
@@ -291,35 +357,81 @@ export default function AdminCourseStudentsPage() {
       });
   }, [course?.students, searchTerm, sortOrder]);
 
-  // เรียงลำดับและจัดกลุ่มประวัติการเข้าเรียนใน Modal รายงาน
+  // จัดกลุ่มและเรียงลำดับสัปดาห์ให้ตรงกับหน้า Report (ยุบรวมรอบย่อยในคาบเดียวกัน)
   const sessionAttendances = useMemo(() => {
-    if (!selectedStudentForReport?.attendances) return [];
+    if (!selectedStudentForReport?.attendances || !Array.isArray(selectedStudentForReport.attendances)) return [];
 
+    // 1. เรียงลำดับจากเวลาที่กดบันทึกจริงล่าสุดไปเก่าสุด เพื่อให้ข้อมูลรอบที่อัปเดตล่าสุดมาเป็นตัวแทนผลลัพธ์
     const sorted = [...selectedStudentForReport.attendances].sort((a: any, b: any) => {
-      const dateA = new Date(a.date || a.createdAt).getTime();
-      const dateB = new Date(b.date || b.createdAt).getTime();
+      const dateA = new Date(a.createdAt || a.date || 0).getTime();
+      const dateB = new Date(b.createdAt || b.date || 0).getTime();
       return dateB - dateA;
     });
 
-    const seenSessionKeys = new Set<string>();
-    const result: any[] = [];
+    // 2. ยุบรวมรอบย่อยตาม วันที่ + ช่วงเวลา + ประเภทคาบเรียน
+    const sessionMap = new Map<string, any>();
 
     for (const record of sorted) {
       const d = new Date(record.date || record.createdAt);
-      const dateStr = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-      const timeSlotMatch = (record.remark || '').match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/);
-      const slot = timeSlotMatch ? timeSlotMatch[0].replace(/\s+/g, '') : '';
-      const isComp = (record.remark || '').includes('[สอนชดเชย]') ? 'COMP' : 'REG';
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateKey = `${year}-${month}-${day}`;
 
-      const sessionKey = record.sessionId ? `sess_${record.sessionId}` : `${dateStr}_${slot}_${isComp}`;
+      let timeKey = record.timeSlot || '';
+      if (!timeKey && record.remark) {
+        const match = record.remark.match(/\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}/);
+        if (match) {
+          timeKey = match[0].replace(/\s+/g, '');
+        }
+      }
+      if (!timeKey) {
+        const hours = d.getHours();
+        if (hours < 12) timeKey = '09:00-11:00';
+        else if (hours < 17) timeKey = '13:00-16:00';
+        else timeKey = '17:00-20:00';
+      }
 
-      if (!seenSessionKeys.has(sessionKey)) {
-        seenSessionKeys.add(sessionKey);
-        result.push(record);
+      // ดึงเวลาเริ่มต้นของคาบเรียน (เช่น "09:00", "13:00")
+      const rawStart = (timeKey.split('-')[0] || '00:00').trim();
+      const startTime = rawStart.padStart(5, '0');
+
+      const isComp = (record.sessionType === 'COMPENSATION') || (record.remark || '').includes('[สอนชดเชย]');
+      const typeKey = isComp ? 'COMPENSATION' : 'REGULAR';
+      const uniqueKey = `${dateKey}_${timeKey}_${typeKey}`;
+
+      if (!sessionMap.has(uniqueKey)) {
+        sessionMap.set(uniqueKey, {
+          ...record,
+          dateKey,
+          timeKey,
+          startTime,
+          isComp,
+          uniqueKey,
+          rawTimestamp: new Date(record.date || record.createdAt || 0).getTime()
+        });
       }
     }
 
-    return result;
+    // 3. เรียงลำดับตาม วันที่ (เก่าไปใหม่) แล้วตามด้วย เวลาเริ่มคาบเรียน (เช่น 09:00 ก่อน 13:00) ให้ตรงกับ Report
+    const chronologicalSessions = Array.from(sessionMap.values()).sort((a, b) => {
+      const dateCompare = a.dateKey.localeCompare(b.dateKey);
+      if (dateCompare !== 0) return dateCompare;
+
+      const timeCompare = a.startTime.localeCompare(b.startTime);
+      if (timeCompare !== 0) return timeCompare;
+
+      if (a.isComp !== b.isComp) {
+        return a.isComp ? 1 : -1;
+      }
+
+      return a.rawTimestamp - b.rawTimestamp;
+    });
+
+    return chronologicalSessions.map((session, idx) => ({
+      ...session,
+      weekNumber: idx + 1
+    }));
   }, [selectedStudentForReport]);
 
   const teacherName = course?.teacher?.firstName
@@ -478,7 +590,7 @@ export default function AdminCourseStudentsPage() {
           <div className="relative w-full max-w-sm">
             <input
               type="text"
-              placeholder="ค้นหารหัส หรือ ชื่อในวิชานี้..."
+              placeholder="ค้นหารหัส หรือ ชื่อ, นามสกุลในวิชานี้..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
@@ -508,7 +620,8 @@ export default function AdminCourseStudentsPage() {
                       </span>
                     </div>
                   </th>
-                  <th className="p-4 text-xs font-bold text-slate-600">ชื่อ - นามสกุล</th>
+                  <th className="p-4 text-xs font-bold text-slate-600 w-1/3">ชื่อ</th>
+                  <th className="p-4 text-xs font-bold text-slate-600">นามสกุล</th>
                   <th className="p-4 text-xs font-bold text-slate-600 text-center w-36">จัดการ</th>
                 </tr>
               </thead>
@@ -516,34 +629,36 @@ export default function AdminCourseStudentsPage() {
                 {filteredAndSortedStudents.length > 0 ? (
                   filteredAndSortedStudents.map((student: any, index: number) => {
                     const studentName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || student.name || 'ไม่ระบุชื่อ';
+                    const firstName = student.firstName || student.name || '-';
+                    const lastName = student.lastName || '-';
 
                     return (
                       <tr key={student.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="p-4 text-xs font-bold text-slate-400 text-center">
+                        <td className="p-4 text-xs font-bold text-slate-400 text-center align-middle">
                           {index + 1}
                         </td>
-                        <td className="p-4 font-mono text-xs md:text-sm font-bold text-emerald-700">
+                        <td className="p-4 font-mono text-xs md:text-sm font-bold text-emerald-700 align-middle">
                           {student.studentCode}
                         </td>
                         <td
-                          className="p-4 font-bold text-slate-800 hover:text-emerald-700 cursor-pointer text-xs md:text-sm"
-                          onClick={() => {
-                            setSelectedStudentForReport({ ...student, displayName: studentName });
-                            setIsReportModalOpen(true);
-                          }}
+                          className="p-4 font-bold text-slate-800 hover:text-emerald-700 cursor-pointer text-xs md:text-sm align-middle"
+                          onClick={() => handleOpenStudentReport(student, studentName)}
                         >
-                          {studentName}
+                          {firstName}
                         </td>
-                        <td className="p-4 text-center">
+                        <td
+                          className="p-4 font-bold text-slate-700 hover:text-emerald-700 cursor-pointer text-xs md:text-sm align-middle"
+                          onClick={() => handleOpenStudentReport(student, studentName)}
+                        >
+                          {lastName}
+                        </td>
+                        <td className="p-4 text-center align-middle">
                           <div className="flex justify-center items-center gap-1.5">
 
                             {/* 1. ปุ่มดูรายงานสถิติของนักศึกษา (Report Icon) */}
                             <button
                               type="button"
-                              onClick={() => {
-                                setSelectedStudentForReport({ ...student, displayName: studentName });
-                                setIsReportModalOpen(true);
-                              }}
+                              onClick={() => handleOpenStudentReport(student, studentName)}
                               title="ดูสถิติการเข้าเรียน"
                               className="p-2 text-slate-700 bg-slate-100 hover:bg-slate-700 hover:text-white rounded-xl border border-slate-200/80 transition-all shadow-2xs cursor-pointer"
                             >
@@ -571,7 +686,7 @@ export default function AdminCourseStudentsPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={4} className="text-center p-14 text-slate-400 font-bold text-xs">
+                    <td colSpan={5} className="text-center p-14 text-slate-400 font-bold text-xs">
                       {searchTerm ? 'ไม่พบข้อมูลที่ตรงกับคำค้นหา' : 'ยังไม่มีนักศึกษาลงทะเบียนในรายวิชานี้'}
                     </td>
                   </tr>
@@ -680,7 +795,7 @@ export default function AdminCourseStudentsPage() {
         </div>
       )}
 
-      {/* 7. Center Modal Popup: รายงานสถิติประวัตินักศึกษา (สำหรับ Admin) */}
+      {/* 7. Center Modal Popup: รายงานสถิติประวัตินักศึกษา (สำหรับ Admin - แสดงผลยุบรวมตามสัปดาห์/คาบเรียน) */}
       {isReportModalOpen && selectedStudentForReport && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
@@ -704,7 +819,7 @@ export default function AdminCourseStudentsPage() {
               </button>
             </div>
 
-            {/* กล่องสรุปสถานะการเข้าเรียน */}
+            {/* กล่องสรุปสถานะการเข้าเรียนตามสัปดาห์ */}
             <div className="grid grid-cols-4 gap-2 mb-5">
               {[
                 { label: 'มาเรียน', val: 'มาเรียน', color: 'text-emerald-700', bg: 'bg-emerald-50' },
@@ -721,18 +836,34 @@ export default function AdminCourseStudentsPage() {
               ))}
             </div>
 
-            {/* รายการประวัติการเช็คชื่อทั้งหมด */}
+            {/* รายการแสดงผลสรุปแยกตามสัปดาห์/คาบเรียน */}
             <div className="flex-1 overflow-y-auto pr-1 space-y-2">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">ประวัติการเช็คชื่อทั้งหมด</h3>
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  ประวัติการเข้าเรียนรายสัปดาห์ ({sessionAttendances.length} สัปดาห์/คาบเรียน)
+                </h3>
+              </div>
 
               {sessionAttendances.map((record: any) => (
-                <div key={record.id} className="flex justify-between items-center p-3.5 rounded-2xl bg-slate-50 border border-slate-200/70 hover:bg-slate-100/60 transition-colors">
+                <div key={record.uniqueKey || record.id} className="flex justify-between items-center p-3.5 rounded-2xl bg-slate-50 border border-slate-200/70 hover:bg-slate-100/60 transition-colors">
                   <div className="pr-3">
-                    <p className="text-xs font-bold text-slate-800">
-                      {new Date(record.date || record.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
-                    </p>
-                    <p className="text-[11px] font-medium text-slate-400 mt-0.5">
-                      {new Date(record.time || record.date || record.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                        สัปดาห์ที่ {record.weekNumber}
+                      </span>
+                      {record.isComp && (
+                        <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                          คาบสอนชดเชย
+                        </span>
+                      )}
+                      <span className="text-xs font-bold text-slate-800">
+                        {new Date(record.date || record.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] font-medium text-slate-400">
+                      เวลาเช็คชื่อ: {new Date(record.time || record.date || record.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                      {record.timeKey && <span className="ml-1 font-mono font-bold text-slate-600">({record.timeKey} น.)</span>}
                     </p>
                     {record.remark && (
                       <p className="text-[11px] text-slate-500 mt-1 font-medium">
@@ -781,16 +912,12 @@ export default function AdminCourseStudentsPage() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
             {alertModal.isSuccess ? (
-              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-sm">
+                PASS
               </div>
             ) : (
-              <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
-                </svg>
+              <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-sm">
+                ERR
               </div>
             )}
 

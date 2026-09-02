@@ -1,5 +1,6 @@
+// attendance-web/app/components/reports/CourseAttendanceSheetPrintForm.tsx
 'use client';
-import React from 'react';
+import React, { useMemo } from 'react';
 
 interface AttendanceRecord {
   weekNumber: number;
@@ -64,6 +65,15 @@ export default function CourseAttendanceSheetPrintForm({
     if (status === 'ขาดเรียน') return 'ข';
     return status;
   };
+
+  // 🌟 เพิ่มฟังก์ชันเรียงลำดับนักศึกษาตามรหัสประจำตัว (น้อยไปมาก)
+  const sortedStudents = useMemo(() => {
+    return [...students].sort((a, b) => {
+      const codeA = String(a.studentCode || '').trim();
+      const codeB = String(b.studentCode || '').trim();
+      return codeA.localeCompare(codeB, undefined, { numeric: true });
+    });
+  }, [students]);
 
   return (
     <>
@@ -130,7 +140,7 @@ export default function CourseAttendanceSheetPrintForm({
                     </div>
                     <div>
                       <span className="font-bold">จำนวนนักศึกษาทั้งหมด: </span>
-                      <span className="font-bold font-mono">{students.length}</span> คน
+                      <span className="font-bold font-mono">{sortedStudents.length}</span> คน
                     </div>
                   </div>
                 </div>
@@ -160,10 +170,10 @@ export default function CourseAttendanceSheetPrintForm({
             </tr>
           </thead>
 
-          {/* ข้อมูลรายชื่อนักศึกษา */}
+          {/* ข้อมูลรายชื่อนักศึกษา (ใช้ตัวแปร sortedStudents ที่เรียงลำดับแล้ว) */}
           <tbody>
-            {students.length > 0 ? (
-              students.map((st, idx) => {
+            {sortedStudents.length > 0 ? (
+              sortedStudents.map((st, idx) => {
                 const presentCount =
                   st.totalPresent ??
                   Object.values(st.records || {}).filter((v) => v === 'มาเรียน').length;

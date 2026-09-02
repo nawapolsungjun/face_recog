@@ -96,14 +96,6 @@ export default function AdminSingleCourseReportPage() {
     return `${hours}:${minutes}`;
   };
 
-  const getLocalDateString = (dateObj: Date | string) => {
-    const d = new Date(dateObj);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
   const fetchCourseDetailsAndHistory = useCallback(async () => {
     const token = getAuthToken();
     try {
@@ -434,10 +426,23 @@ export default function AdminSingleCourseReportPage() {
     return item.status === filter;
   });
 
+  const uniqueWeeksSummaryData = useMemo(() => {
+    if (!Array.isArray(weeksSummaryData)) return [];
+    const map = new Map<string, any>();
+    for (const item of weeksSummaryData) {
+      const dateKey = item.rawDate || item.dateStr || '';
+      const timeKey = item.timeStr || '00:00';
+      const typeKey = item.sessionType || 'REGULAR';
+      const uniqueKey = `${dateKey}_${timeKey}_${typeKey}`;
+      map.set(uniqueKey, item);
+    }
+    return Array.from(map.values());
+  }, [weeksSummaryData]);
+
   const TOTAL_WEEKS = 15;
   const weeksList = Array.from({ length: TOTAL_WEEKS }, (_, i) => {
     const weekNumber = i + 1;
-    const weekData = weeksSummaryData[i];
+    const weekData = uniqueWeeksSummaryData[i];
     const savedLocalNote = typeof window !== 'undefined' ? localStorage.getItem(`course_${courseId}_week_${weekNumber}_note`) : '';
 
     if (weekData) {
@@ -446,6 +451,7 @@ export default function AdminSingleCourseReportPage() {
         dateStr: weekData.dateStr,
         rawDate: weekData.rawDate,
         timeStr: weekData.timeStr || '',
+        sessionType: weekData.sessionType || 'REGULAR',
         present: weekData.present,
         late: weekData.late,
         leave: weekData.leave,
@@ -462,6 +468,7 @@ export default function AdminSingleCourseReportPage() {
       dateStr: 'ยังไม่บันทึก',
       rawDate: '',
       timeStr: '',
+      sessionType: 'REGULAR',
       present: 0,
       late: 0,
       leave: 0,
@@ -490,7 +497,7 @@ export default function AdminSingleCourseReportPage() {
       return `คาบบ่าย (${slot} น.)`;
     }
     if (slot.includes('17:') || slot.includes('18:') || slot.includes('19:') || slot.includes('20:')) {
-      return `คาบค่ำ (${slot} น.)`;
+      return `คาบพิเศษ (${slot} น.)`;
     }
     return `รอบเวลา ${slot} น.`;
   };
@@ -562,12 +569,18 @@ export default function AdminSingleCourseReportPage() {
       {/* 1. ส่วนหน้าจอปกติ (ซ่อนอัตโนมัติเมื่อสั่งพิมพ์) */}
       <div className="print:hidden flex flex-col flex-1">
         <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
-          <div className="absolute top-6 left-6 flex items-center gap-3">
+          <div className="absolute top-6 left-6 flex items-center gap-4">
             <Link
               href="/admin/courses"
               className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-1 text-xs uppercase tracking-wider transition-all"
             >
               ← รายวิชาทั้งหมด
+            </Link>
+            <Link
+              href="/admin/reports/courses"
+              className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-1 text-xs uppercase tracking-wider transition-all"
+            >
+              ← รายงานภาพรวมทั้งหมด
             </Link>
           </div>
           <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
@@ -575,9 +588,6 @@ export default function AdminSingleCourseReportPage() {
           </h1>
           <p className="text-emerald-100 font-medium text-xs md:text-sm">
             สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
-          </p>
-          <p className="text-emerald-100 font-medium text-xs md:text-sm mt-1">
-            วิชา: <span className="font-bold text-white">{courseInfo?.courseName || 'กำลังโหลด...'}</span> {courseInfo?.courseCode ? `(${courseInfo.courseCode})` : ''} • อาจารย์ผู้สอน: {teacherName}
           </p>
         </header>
 
@@ -605,7 +615,8 @@ export default function AdminSingleCourseReportPage() {
           </div>
         </nav>
 
-        <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8">
+        {/* 🌟 ปรับขนาด Main Container เป็น max-w-6xl เท่ากับหน้า Teacher */}
+        <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
           <div className="flex justify-center mb-6">
             <div className="inline-flex bg-slate-200/80 p-1 rounded-xl shadow-inner border border-slate-300/60">
               <button
@@ -894,7 +905,9 @@ export default function AdminSingleCourseReportPage() {
                             >
                               {week.dateStr !== 'ยังไม่บันทึก' ? (
                                 <div>
-                                  <span className="text-emerald-800 font-bold block">{week.dateStr}</span>
+                                  <span className="text-emerald-800 font-bold block">
+                                    {week.dateStr} {week.sessionType === 'COMPENSATION' && <span className="text-amber-600 text-[10px] ml-1">(ชดเชย)</span>}
+                                  </span>
                                   {week.timeStr && (
                                     <span className="text-[11px] text-slate-500 font-medium block mt-0.5">
                                       {getTimeSlotLabel(week.timeStr)}
@@ -1009,8 +1022,11 @@ export default function AdminSingleCourseReportPage() {
           </div>
         </main>
 
-        <footer className="bg-white text-[#0f766e] py-4 px-4 text-center text-xs font-medium border-t border-slate-100 mt-auto">
-          ระบบตรวจสอบรายชื่อเข้าชั้นเรียนสาขาวิชานวัตกรรมระบบสารสนเทศ
+        <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
+          © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+          <p className="text-emerald-100 font-medium text-xs md:text-sm">
+            สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
+          </p>
         </footer>
 
         {/* Modal Popup: แก้ไขสถานะและระบุหมายเหตุ */}
@@ -1160,7 +1176,7 @@ export default function AdminSingleCourseReportPage() {
                     type="button"
                     disabled={isSavingNote}
                     onClick={handleSaveWeekNote}
-                    className="flex-[2] bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
+                    className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
                   >
                     {isSavingNote ? 'กำลังบันทึก...' : 'บันทึกหมายเหตุ'}
                   </button>

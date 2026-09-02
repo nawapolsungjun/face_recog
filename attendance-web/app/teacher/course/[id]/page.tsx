@@ -1,5 +1,6 @@
+// attendance-web/app/teacher/course/[id]/page.tsx
 'use client';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as faceapi from 'face-api.js';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -17,14 +18,6 @@ interface StudentInCourse {
   lastName?: string;
   name?: string;
 }
-
-// Preset ช่วงเวลามาตรฐาน (เรียบง่าย ไม่มี Emoji)
-const TIME_PRESETS = [
-  { id: 'morning', label: 'คาบเช้า', start: '09:00', end: '12:00' },
-  { id: 'afternoon', label: 'คาบบ่าย', start: '13:00', end: '16:00' },
-  { id: 'evening', label: 'คาบค่ำ', start: '17:00', end: '20:00' },
-  { id: 'custom', label: 'กำหนดเอง', start: '', end: '' },
-];
 
 export default function AttendancePage() {
   const params = useParams();
@@ -49,17 +42,22 @@ export default function AttendancePage() {
     return `${year}-${month}-${day}`;
   });
 
-  // State สำหรับจัดการช่วงเวลา & การสอนชดเชย
   const [sessionType, setSessionType] = useState<'REGULAR' | 'COMPENSATION'>('REGULAR');
-  const [selectedPreset, setSelectedPreset] = useState<string>('morning');
+  const [slotMode, setSlotMode] = useState<'MORNING' | 'AFTERNOON' | 'SPECIAL'>('MORNING');
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('12:00');
+  const [sessionRemark, setSessionRemark] = useState('');
 
   const [dailyRoundNumber, setDailyRoundNumber] = useState<number>(1);
   const [previousRoundAttendance, setPreviousRoundAttendance] = useState<any[]>([]);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-  // State สำหรับ Custom Alert / Success Popup
+  // State สำหรับตัวกรองสถานะการแสดงผลรายชื่อ
+  const [statusFilter, setStatusFilter] = useState<'ทั้งหมด' | 'มาเรียน' | 'มาสาย' | 'ขาดเรียน'>('ทั้งหมด');
+
+  // State สำหรับ Modal ขยายรูปภาพผลการสแกน
+  const [zoomedImageIdx, setZoomedImageIdx] = useState<number | null>(null);
+
   const [alertModal, setAlertModal] = useState<{
     show: boolean;
     title: string;
@@ -75,21 +73,20 @@ export default function AttendancePage() {
 
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const imageRefs = useRef<(HTMLImageElement | null)[]>([]);
+  const zoomImgRef = useRef<HTMLImageElement | null>(null);
+  const zoomCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const getAuthToken = () => localStorage.getItem('teacher_token') || localStorage.getItem('token');
 
-  const handleSelectPreset = (presetId: string) => {
-    setSelectedPreset(presetId);
-    const found = TIME_PRESETS.find(p => p.id === presetId);
-    if (found && presetId !== 'custom') {
-      setStartTime(found.start);
-      setEndTime(found.end);
-    }
+  const handleSlotChange = (mode: 'MORNING' | 'AFTERNOON' | 'SPECIAL') => {
+    setSlotMode(mode);
+    if (mode === 'MORNING') { setStartTime('09:00'); setEndTime('12:00'); }
+    else if (mode === 'AFTERNOON') { setStartTime('13:00'); setEndTime('16:00'); }
+    else if (mode === 'SPECIAL') { setStartTime('17:00'); setEndTime('20:00'); }
   };
 
   const fetchInitialData = useCallback(async () => {
     const token = getAuthToken();
-    const currentSlot = `${startTime}-${endTime}`;
 
     try {
       const resCourse = await fetch(`/api/courses/${courseId}`, {
@@ -109,32 +106,54 @@ export default function AttendancePage() {
         }
       }
 
-      // ดึงข้อมูลประวัติแยกตาม วันที่ + ช่วงเวลา + ประเภทคาบเรียน
       const resHistory = await fetch(
-        `/api/attendance/history/${courseId}?date=${selectedDate}&timeSlot=${currentSlot}&sessionType=${sessionType}`,
+        `/api/attendance/history/${courseId}?date=${selectedDate}&sessionType=${sessionType}`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       ).catch(() => null);
 
       let recordedRoundsCount = 0;
       let existingSessionData: any[] = [];
+      let foundTimeSlot = '';
 
       if (resHistory && resHistory.ok) {
         const historyJson = await resHistory.json();
         if (historyJson?.success && Array.isArray(historyJson.data)) {
+          const isMorning = (ts: string) => /^(0[0-9]|1[0-2])/.test(ts);
+          const isAfternoon = (ts: string) => /^(1[3-6])/.test(ts);
+          const isSpecial = (ts: string) => /^(1[7-9]|2[0-3])/.test(ts);
+
           const matchedSessions = historyJson.data.filter((item: any) => {
-            const matchSlot = item.timeSlot ? item.timeSlot === currentSlot : true;
             const matchType = item.sessionType ? item.sessionType === sessionType : true;
-            return matchSlot && matchType;
+            if (!matchType) return false;
+
+            const ts = item.timeSlot || '';
+            if (slotMode === 'MORNING') return isMorning(ts);
+            if (slotMode === 'AFTERNOON') return isAfternoon(ts);
+            if (slotMode === 'SPECIAL') return isSpecial(ts);
+            return false;
           });
 
           recordedRoundsCount = matchedSessions.length;
           if (matchedSessions.length > 0) {
-            existingSessionData = matchedSessions[matchedSessions.length - 1].records || [];
+            const latest = matchedSessions[matchedSessions.length - 1];
+            existingSessionData = latest.records || [];
+            foundTimeSlot = latest.timeSlot;
           }
         }
       }
 
-      // กำหนดรอบการเช็คชื่อของคาบปัจจุบัน
+      if (foundTimeSlot) {
+        const [exStart, exEnd] = foundTimeSlot.split('-');
+        if (exStart && exEnd) {
+          setStartTime(exStart);
+          setEndTime(exEnd);
+        }
+      } else {
+        if (slotMode === 'MORNING') { setStartTime('09:00'); setEndTime('12:00'); }
+        else if (slotMode === 'AFTERNOON') { setStartTime('13:00'); setEndTime('16:00'); }
+        else if (slotMode === 'SPECIAL') { setStartTime('17:00'); setEndTime('20:00'); }
+      }
+
       if (recordedRoundsCount >= 2) {
         setDailyRoundNumber(3);
         setPreviousRoundAttendance(existingSessionData);
@@ -147,10 +166,8 @@ export default function AttendancePage() {
       }
     } catch (err) {
       console.error('Fetch initial data error:', err);
-      setDailyRoundNumber(1);
-      setPreviousRoundAttendance([]);
     }
-  }, [courseId, selectedDate, startTime, endTime, sessionType]);
+  }, [courseId, selectedDate, sessionType, slotMode]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -190,6 +207,28 @@ export default function AttendancePage() {
       setDetectedStudents([]);
       setStatus(`เลือกรูปภาพ ${files.length} รูป พร้อมเช็คชื่อ`);
     }
+  };
+
+  const drawBoxes = (image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
+    canvas.width = image.clientWidth;
+    canvas.height = image.clientHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const scaleX = image.clientWidth / image.naturalWidth;
+    const scaleY = image.clientHeight / image.naturalHeight;
+
+    boxes.forEach((box, index) => {
+      const name = matches[index];
+      const isMatched = name && name !== "Unknown";
+      const dx = box.x * scaleX, dy = box.y * scaleY, dw = box.width * scaleX, dh = box.height * scaleY;
+      ctx.strokeStyle = isMatched ? '#10b981' : '#ef4444';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(dx, dy, dw, dh);
+      ctx.font = 'bold 12px Arial';
+      ctx.fillStyle = isMatched ? '#10b981' : '#ef4444';
+      ctx.fillText(name || 'Unknown', dx, dy - 5);
+    });
   };
 
   const handleScanAttendance = async () => {
@@ -264,7 +303,24 @@ export default function AttendancePage() {
     }
   };
 
-  const getEvaluatedAttendance = () => {
+  // วาดกรอบบนรูปภาพที่ถูกขยายใน Modal
+  useEffect(() => {
+    if (zoomedImageIdx !== null && scanResults[zoomedImageIdx]) {
+      const timer = setTimeout(() => {
+        if (zoomImgRef.current && zoomCanvasRef.current) {
+          drawBoxes(
+            zoomImgRef.current,
+            zoomCanvasRef.current,
+            scanResults[zoomedImageIdx].boxes,
+            scanResults[zoomedImageIdx].matches
+          );
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [zoomedImageIdx, scanResults]);
+
+  const attendanceEvaluationList = useMemo(() => {
     const cleanedDetected = detectedStudents.map(s => s.replace(/\s+/g, ' ').trim());
 
     return courseStudents.map(student => {
@@ -279,17 +335,21 @@ export default function AttendancePage() {
         (p: any) => p.studentId === student.id || p.id === student.id || p.studentCode === student.studentCode
       );
 
-      const sessionPrefix = sessionType === 'COMPENSATION' ? '[สอนชดเชย] ' : '';
+      const timeSlotStr = `[${startTime}-${endTime} น.] `;
+      const customRemarkPrefix = sessionRemark ? `[${sessionRemark}] ` : '';
+      const typePrefix = sessionType === 'COMPENSATION' ? '[สอนชดเชย] ' : '';
+      const sessionPrefix = `${timeSlotStr}${typePrefix}${customRemarkPrefix}`;
+      
       let finalStatus: 'มาเรียน' | 'มาสาย' | 'ขาดเรียน' = 'ขาดเรียน';
       let autoRemark = '';
 
       if (dailyRoundNumber === 1) {
         if (isDetectedInCurrentScan) {
           finalStatus = 'มาเรียน';
-          autoRemark = `${sessionPrefix}ตรวจพบในการเช็คชื่อรอบที่ 1 (${startTime}-${endTime} น.)`;
+          autoRemark = `${sessionPrefix}ตรวจพบในการเช็คชื่อรอบที่ 1`;
         } else {
           finalStatus = 'ขาดเรียน';
-          autoRemark = `${sessionPrefix}ไม่พบในการเช็คชื่อรอบที่ 1 (${startTime}-${endTime} น.)`;
+          autoRemark = `${sessionPrefix}ไม่พบในการเช็คชื่อรอบที่ 1`;
         }
       } else if (dailyRoundNumber === 2) {
         if (prevRecord?.status === 'มาเรียน') {
@@ -297,7 +357,7 @@ export default function AttendancePage() {
           autoRemark = prevRecord.remark || `${sessionPrefix}ตรวจพบในการเช็คชื่อรอบที่ 1`;
         } else if (isDetectedInCurrentScan) {
           finalStatus = 'มาสาย';
-          autoRemark = `${sessionPrefix}เช็คชื่อรอบที่ 2 (${startTime}-${endTime} น.)`;
+          autoRemark = `${sessionPrefix}เช็คชื่อรอบที่ 2`;
         } else {
           finalStatus = 'ขาดเรียน';
           autoRemark = `${sessionPrefix}ไม่พบในการเช็คชื่อทั้งสองรอบ`;
@@ -327,9 +387,28 @@ export default function AttendancePage() {
         remark: autoRemark
       };
     });
-  };
+  }, [detectedStudents, courseStudents, previousRoundAttendance, startTime, endTime, sessionRemark, sessionType, dailyRoundNumber]);
 
-  const attendanceEvaluationList = getEvaluatedAttendance();
+  // สรุปยอดนับสถานะเพื่อแสดงบนแท็บกรอง
+  const counts = useMemo(() => {
+    const present = attendanceEvaluationList.filter(s => s.finalStatus === 'มาเรียน').length;
+    const late = attendanceEvaluationList.filter(s => s.finalStatus === 'มาสาย').length;
+    const absent = attendanceEvaluationList.filter(s => s.finalStatus === 'ขาดเรียน').length;
+    return {
+      total: attendanceEvaluationList.length,
+      present,
+      late,
+      absent
+    };
+  }, [attendanceEvaluationList]);
+
+  // กรองรายชื่อนักศึกษาตามแท็บที่เลือก
+  const filteredAttendanceList = useMemo(() => {
+    return attendanceEvaluationList.filter(item => {
+      if (statusFilter === 'ทั้งหมด') return true;
+      return item.finalStatus === statusFilter;
+    });
+  }, [attendanceEvaluationList, statusFilter]);
 
   const handleConfirmAndSave = async () => {
     setIsSaving(true);
@@ -356,6 +435,7 @@ export default function AttendancePage() {
         );
       }
 
+      const timeSlotStr = `${startTime}-${endTime}`;
       const res = await fetch('/api/attendance/confirm', {
         method: 'POST',
         headers: {
@@ -365,12 +445,13 @@ export default function AttendancePage() {
         body: JSON.stringify({
           courseId: courseId,
           date: selectedDate,
-          timeSlot: `${startTime}-${endTime}`,
           sessionType: sessionType,
+          timeSlot: timeSlotStr,
           imageUrls: imagesBase64,
           attendanceData: attendanceData,
           detectedNames: detectedStudents,
-          round: dailyRoundNumber
+          round: dailyRoundNumber,
+          sessionNote: sessionRemark
         })
       });
 
@@ -383,7 +464,7 @@ export default function AttendancePage() {
         setAlertModal({
           show: true,
           title: 'บันทึกสำเร็จเรียบร้อย',
-          message: `บันทึกการเช็คชื่อวันที่ ${selectedDate} ช่วงเวลา ${startTime}-${endTime} น. ${typeText} ${roundTitle} เรียบร้อยแล้ว`,
+          message: `บันทึกการเช็คชื่อวันที่ ${selectedDate} [${timeSlotStr} น.] ${typeText} ${roundTitle} เรียบร้อยแล้ว`,
           isSuccess: true,
           onClose: () => router.push(`/teacher/report/${courseId}`),
         });
@@ -409,28 +490,6 @@ export default function AttendancePage() {
       alertModal.onClose();
     }
     setAlertModal({ show: false, title: '', message: '', isSuccess: true });
-  };
-
-  const drawBoxes = (image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
-    canvas.width = image.clientWidth;
-    canvas.height = image.clientHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const scaleX = image.clientWidth / image.naturalWidth;
-    const scaleY = image.clientHeight / image.naturalHeight;
-
-    boxes.forEach((box, index) => {
-      const name = matches[index];
-      const isMatched = name && name !== "Unknown";
-      const dx = box.x * scaleX, dy = box.y * scaleY, dw = box.width * scaleX, dh = box.height * scaleY;
-      ctx.strokeStyle = isMatched ? '#10b981' : '#ef4444';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(dx, dy, dw, dh);
-      ctx.font = 'bold 12px Arial';
-      ctx.fillStyle = isMatched ? '#10b981' : '#ef4444';
-      ctx.fillText(name || 'Unknown', dx, dy - 5);
-    });
   };
 
   if (!isMounted) return <div className="p-20 text-center font-bold text-slate-400">กำลังเริ่มระบบ...</div>;
@@ -494,10 +553,10 @@ export default function AttendancePage() {
       {/* 3. Main Content */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-8 flex flex-col items-center">
 
-        {/* การ์ดเลือกวันที่, ช่วงเวลาคาบเรียน และอัปโหลดรูปภาพ */}
+        {/* การ์ดเลือกวันที่ และอัปโหลดรูปภาพ */}
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 w-full mb-6 space-y-5">
 
-          {/* ส่วนที่ 1: เลือกประเภทคาบเรียน (Basic Flat Switch) */}
+          {/* ส่วนที่ 1: เลือกประเภทคาบเรียน */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
             <div>
               <span className="text-xs font-bold text-slate-800 block">ประเภทคาบเรียน</span>
@@ -527,67 +586,101 @@ export default function AttendancePage() {
             </div>
           </div>
 
-          {/* ส่วนที่ 2: วันที่ & ช่วงเวลาคาบเรียน */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4 border-b border-slate-100">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                เลือกวันที่
-              </label>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
-              />
+          {/* ส่วนที่ 1.1: ช่วงเวลาคาบเรียน */}
+          <div className="space-y-2.5 bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <span className="text-xs font-bold text-slate-800 block">ช่วงเวลาคาบเรียน</span>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { id: 'MORNING', label: 'คาบเช้า' },
+                { id: 'AFTERNOON', label: 'คาบบ่าย' },
+                { id: 'SPECIAL', label: 'คาบพิเศษ' },
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => handleSlotChange(m.id as any)}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    slotMode === m.id
+                      ? 'bg-[#0f766e] text-white shadow-sm'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                ช่วงเวลาคาบเรียน
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-2">
-                {TIME_PRESETS.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => handleSelectPreset(p.id)}
-                    className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all text-center cursor-pointer ${selectedPreset === p.id
-                      ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
-                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Input เลือกระบุเวลาเริ่มต้น - สิ้นสุด */}
-              <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-                <input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => { setStartTime(e.target.value); setSelectedPreset('custom'); }}
-                  className="bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-lg px-2 py-1.5 flex-1 outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-                <span className="text-xs text-slate-400 font-bold">ถึง</span>
-                <input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => { setEndTime(e.target.value); setSelectedPreset('custom'); }}
-                  className="bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-lg px-2 py-1.5 flex-1 outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-                <span className="text-xs text-slate-500 font-bold pr-1">น.</span>
-              </div>
+            <div className="flex items-center gap-3 pt-2">
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-emerald-500/20"
+              />
+              <span className="text-xs font-bold text-slate-500">ถึง</span>
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-emerald-500/20"
+              />
+              <span className="text-xs font-bold text-slate-500">น.</span>
             </div>
           </div>
 
-          {/* ส่วนที่ 3: สถานะรอบการเช็คชื่อของคาบปัจจุบัน */}
+          {/* หมายเหตุคาบเรียน / ระบุชดเชย */}
+          <div className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <label className="block text-xs font-bold text-slate-800">
+              หมายเหตุ / บันทึกคาบสอนชดเชย (เช่น สอนชดเชยสัปดาห์ที่ 3)
+            </label>
+            <input
+              type="text"
+              value={sessionRemark}
+              onChange={(e) => setSessionRemark(e.target.value)}
+              placeholder="ระบุหมายเหตุเพิ่มเติม หรือสัปดาห์ที่สอนชดเชย..."
+              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+            />
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {['สอนชดเชยสัปดาห์ที่ 1', 'สอนชดเชยสัปดาห์ที่ 2', 'สอนชดเชยสัปดาห์ที่ 3', 'สอนชดเชยเสาร์-อาทิตย์'].map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => setSessionRemark(tag)}
+                  className="text-[11px] px-2.5 py-1 bg-white hover:bg-emerald-50 hover:text-emerald-700 rounded-lg font-bold text-slate-600 transition-all border border-slate-200 cursor-pointer"
+                >
+                  + {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ส่วนที่ 2: วันที่ */}
+          <div className="pb-4 border-b border-slate-100">
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              เลือกวันที่
+            </label>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
+            />
+          </div>
+
+          {/* ส่วนที่ 3: สถานะรอบการเช็คชื่อ */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 rounded-xl border bg-slate-50 border-slate-200">
-            <span className="text-xs font-bold text-slate-700">
-              สถานะ: {dailyRoundNumber === 1 ? 'การเช็คชื่อรอบที่ 1 (เริ่มคาบ)' : dailyRoundNumber === 2 ? 'การเช็คชื่อรอบที่ 2 (ตรวจสาย)' : 'การเช็คชื่อรอบเพิ่มเติม (เก็บตก)'}
-            </span>
+            <div>
+              <span className="text-xs font-bold text-slate-700 block">
+                สถานะ: {dailyRoundNumber === 1 ? 'การเช็คชื่อรอบที่ 1 (เริ่มคาบ)' : dailyRoundNumber === 2 ? 'การเช็คชื่อรอบที่ 2 (ตรวจสาย)' : 'การเช็คชื่อรอบเพิ่มเติม (เก็บตก)'}
+              </span>
+              {dailyRoundNumber > 1 && (
+                <span className="text-[10px] text-emerald-600 font-bold mt-0.5 block">
+                  (พบประวัติรอบที่ 1 ระบบซิงค์เวลา {startTime}-{endTime} น. ให้อัตโนมัติ)
+                </span>
+              )}
+            </div>
             <span className="text-[11px] font-bold bg-white px-2.5 py-1 rounded-md border border-slate-200 text-slate-700">
-              {sessionType === 'COMPENSATION' ? '[สอนชดเชย]' : '[คาบปกติ]'} {selectedDate} ({startTime} - {endTime} น.)
+              [{startTime}-{endTime} น.] {sessionType === 'COMPENSATION' ? '[สอนชดเชย]' : '[คาบปกติ]'} {selectedDate}
             </span>
           </div>
 
@@ -620,7 +713,7 @@ export default function AttendancePage() {
         {/* ตารางแสดงผลการตรวจ */}
         {scanResults.length > 0 && (
           <div className="w-full bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80 mb-6 animate-in fade-in duration-300">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-5 pb-3 border-b border-slate-100">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4 pb-3 border-b border-slate-100">
               <div>
                 <h2 className="text-lg font-black text-slate-800">
                   รายชื่อนักศึกษาในคลาส ({attendanceEvaluationList.length} คน)
@@ -630,84 +723,133 @@ export default function AttendancePage() {
                 </p>
               </div>
 
-              <span className={`text-xs font-bold px-3 py-1 rounded-lg border ${sessionType === 'COMPENSATION' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-50 text-slate-700 border-slate-200'
-                }`}>
-                {sessionType === 'COMPENSATION' ? 'คาบสอนชดเชย' : 'คาบเรียนปกติ'} ({startTime} - {endTime} น.)
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold px-3 py-1 rounded-lg border bg-slate-50 text-slate-700 border-slate-200">
+                  {startTime}-{endTime} น.
+                </span>
+                <span className={`text-xs font-bold px-3 py-1 rounded-lg border ${sessionType === 'COMPENSATION' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-50 text-slate-700 border-slate-200'
+                  }`}>
+                  {sessionType === 'COMPENSATION' ? 'คาบสอนชดเชย' : 'คาบเรียนปกติ'}
+                </span>
+              </div>
             </div>
 
-            <div className="flex flex-col gap-2.5 mb-6">
-              {attendanceEvaluationList.map((item, i) => {
-                const isFound = item.isDetectedInCurrentScan;
-                const statusColor =
-                  item.finalStatus === 'มาเรียน' ? 'bg-emerald-50/60 border-emerald-200' :
-                    item.finalStatus === 'มาสาย' ? 'bg-amber-50/60 border-amber-200' :
-                      'bg-red-50/60 border-red-200';
+            {/* แถบปุ่มกรองสถานะการเข้าเรียน */}
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              {[
+                { id: 'ทั้งหมด', label: 'ทั้งหมด', count: counts.total, bg: 'bg-slate-100 text-slate-700' },
+                { id: 'มาเรียน', label: 'มาเรียน', count: counts.present, bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+                { id: 'มาสาย', label: 'มาสาย', count: counts.late, bg: 'bg-amber-50 text-amber-700 border-amber-200' },
+                { id: 'ขาดเรียน', label: 'ขาดเรียน', count: counts.absent, bg: 'bg-red-50 text-red-700 border-red-200' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setStatusFilter(tab.id as any)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                    statusFilter === tab.id
+                      ? 'bg-[#0f766e] text-white border-[#0f766e] shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  {tab.label} ({tab.count})
+                </button>
+              ))}
+            </div>
 
-                return (
-                  <div
-                    key={item.studentId}
-                    className={`border rounded-xl px-4 py-3 flex items-center justify-between transition-all ${statusColor}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className={`w-7 h-7 rounded-lg font-bold text-xs flex items-center justify-center border ${isFound ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'
-                        }`}>
-                        {i + 1}
-                      </span>
-                      <div>
-                        <span className="font-bold text-slate-800 text-xs md:text-sm">
-                          {item.displayName}
+            {/* รายการแสดงผลการประเมินนักศึกษา */}
+            <div className="flex flex-col gap-2.5 mb-6">
+              {filteredAttendanceList.length > 0 ? (
+                filteredAttendanceList.map((item, i) => {
+                  const isFound = item.isDetectedInCurrentScan;
+                  const statusColor =
+                    item.finalStatus === 'มาเรียน' ? 'bg-emerald-50/60 border-emerald-200' :
+                      item.finalStatus === 'มาสาย' ? 'bg-amber-50/60 border-amber-200' :
+                        'bg-red-50/60 border-red-200';
+
+                  return (
+                    <div
+                      key={item.studentId}
+                      className={`border rounded-xl px-4 py-3 flex items-center justify-between transition-all ${statusColor}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={`w-7 h-7 rounded-lg font-bold text-xs flex items-center justify-center border ${isFound ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'
+                          }`}>
+                          {i + 1}
                         </span>
-                        {!isFound && (
-                          <span className="ml-2 text-[10px] text-red-500 font-medium">
-                            (ไม่พบในรูปสแกน)
+                        <div>
+                          <span className="font-bold text-slate-800 text-xs md:text-sm">
+                            {item.displayName}
                           </span>
-                        )}
-                        {item.remark && (
-                          <div className="text-[11px] text-slate-400 mt-0.5">
-                            หมายเหตุ: {item.remark}
-                          </div>
-                        )}
+                          {!isFound && (
+                            <span className="ml-2 text-[10px] text-red-500 font-medium">
+                              (ไม่พบในรูปสแกน)
+                            </span>
+                          )}
+                          {item.remark && (
+                            <div className="text-[11px] text-slate-400 mt-0.5">
+                              หมายเหตุ: {item.remark}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono font-bold text-xs text-slate-600">
+                          {item.studentCode}
+                        </span>
+
+                        <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${item.finalStatus === 'มาเรียน'
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : item.finalStatus === 'มาสาย'
+                            ? 'bg-amber-100 text-amber-800 border-amber-300'
+                            : 'bg-red-100 text-red-700 border-red-300'
+                          }`}>
+                          {item.finalStatus}
+                        </span>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono font-bold text-xs text-slate-600">
-                        {item.studentCode}
-                      </span>
-
-                      <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${item.finalStatus === 'มาเรียน'
-                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                        : item.finalStatus === 'มาสาย'
-                          ? 'bg-amber-100 text-amber-800 border-amber-300'
-                          : 'bg-red-100 text-red-700 border-red-300'
-                        }`}>
-                        {item.finalStatus}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              ) : (
+                <div className="p-8 text-center text-slate-400 font-bold text-xs border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                  ไม่พบนักศึกษาที่มีสถานะ &quot;{statusFilter}&quot;
+                </div>
+              )}
             </div>
 
             <button
               onClick={() => setShowConfirmModal(true)}
               className="w-full bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white py-3.5 rounded-xl font-bold text-sm shadow-xs transition-all cursor-pointer"
             >
-              ยืนยันการบันทึกเข้าเรียน ({sessionType === 'COMPENSATION' ? 'สอนชดเชย' : 'คาบปกติ'} {startTime}-{endTime} น.)
+              ยืนยันการบันทึกเข้าเรียน ({startTime}-{endTime} น. / {sessionType === 'COMPENSATION' ? 'สอนชดเชย' : 'คาบปกติ'})
             </button>
           </div>
         )}
 
-        {/* ส่วนแสดงภาพวิเคราะห์ใบหน้า */}
+        {/* ส่วนแสดงภาพวิเคราะห์ใบหน้า (สามารถคลิกเพื่อขยายได้) */}
         {scanResults.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
             {scanResults.map((res, idx) => (
               <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80">
-                <p className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">
-                  รูปภาพที่ #{idx + 1}
-                </p>
-                <div className="relative rounded-xl overflow-hidden bg-slate-100 border border-slate-100">
+                <div className="flex justify-between items-center mb-3">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    รูปภาพที่ #{idx + 1}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setZoomedImageIdx(idx)}
+                    className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    คลิกเพื่อขยายภาพ
+                  </button>
+                </div>
+
+                <div
+                  onClick={() => setZoomedImageIdx(idx)}
+                  className="relative rounded-xl overflow-hidden bg-slate-100 border border-slate-100 cursor-zoom-in group hover:ring-2 hover:ring-emerald-500 transition-all"
+                  title="คลิกเพื่อดูภาพขยายขนาดใหญ่"
+                >
                   <img
                     ref={(el) => { imageRefs.current[idx] = el; }}
                     src={res.url}
@@ -715,6 +857,11 @@ export default function AttendancePage() {
                     alt="Scan"
                   />
                   <canvas ref={(el) => { canvasRefs.current[idx] = el; }} className="absolute top-0 left-0 pointer-events-none" />
+                  <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                    <span className="bg-slate-900/80 text-white text-xs font-bold px-3 py-1.5 rounded-xl backdrop-blur-sm shadow">
+                      คลิกเพื่อขยายภาพ
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}
@@ -730,6 +877,58 @@ export default function AttendancePage() {
         </p>
       </footer>
 
+      {/* Modal Popup: ขยายรูปภาพผลการสแกนขนาดใหญ่ */}
+      {zoomedImageIdx !== null && scanResults[zoomedImageIdx] && (
+        <div
+          className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setZoomedImageIdx(null)}
+        >
+          <div
+            className="relative max-w-5xl w-full max-h-[92vh] bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col p-4 md:p-6 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center pb-3 mb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base md:text-lg font-black text-slate-800">
+                  รูปภาพที่ #{zoomedImageIdx + 1} (มุมมองขนาดขยาย)
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  ตรวจพบใบหน้าทั้งหมด {scanResults[zoomedImageIdx].boxes?.length || 0} ตำแหน่ง
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setZoomedImageIdx(null)}
+                className="text-slate-400 hover:text-slate-700 text-2xl font-bold p-1 cursor-pointer"
+                title="ปิด"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="relative overflow-auto max-h-[78vh] flex items-center justify-center rounded-2xl bg-slate-900 border border-slate-200">
+              <img
+                ref={zoomImgRef}
+                src={scanResults[zoomedImageIdx].url}
+                alt="Zoomed Scan Result"
+                className="max-h-[75vh] w-auto object-contain block"
+                onLoad={() => {
+                  if (zoomImgRef.current && zoomCanvasRef.current) {
+                    drawBoxes(
+                      zoomImgRef.current,
+                      zoomCanvasRef.current,
+                      scanResults[zoomedImageIdx].boxes,
+                      scanResults[zoomedImageIdx].matches
+                    );
+                  }
+                }}
+              />
+              <canvas ref={zoomCanvasRef} className="absolute top-0 left-0 pointer-events-none" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Popup: ยืนยันการเช็คชื่อ */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
@@ -738,8 +937,13 @@ export default function AttendancePage() {
             <p className="text-xs text-slate-500 mt-1 leading-relaxed">
               บันทึกผลประจำวันที่ <span className="font-bold text-slate-700">{selectedDate}</span><br />
               <span className="font-bold text-emerald-800">
-                ช่วงเวลา: {startTime} - {endTime} น. {sessionType === 'COMPENSATION' ? '(สอนชดเชย)' : '(คาบปกติ)'}
+                เวลา: {startTime}-{endTime} น. | รูปแบบ: {sessionType === 'COMPENSATION' ? 'คาบสอนชดเชย' : 'คาบเรียนปกติ'}
               </span>
+              {sessionRemark && (
+                <span className="block text-slate-600 mt-1 font-bold">
+                  หมายเหตุ: {sessionRemark}
+                </span>
+              )}
             </p>
 
             <div className="bg-slate-50 rounded-xl p-4 my-5 text-xs text-slate-600 text-left space-y-2 border border-slate-200/60">
@@ -750,19 +954,19 @@ export default function AttendancePage() {
               <div className="flex justify-between">
                 <span className="text-slate-400 font-bold">มาเรียน:</span>
                 <span className="font-bold text-emerald-700">
-                  {attendanceEvaluationList.filter(s => s.finalStatus === 'มาเรียน').length} คน
+                  {counts.present} คน
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400 font-bold">มาสาย:</span>
                 <span className="font-bold text-amber-700">
-                  {attendanceEvaluationList.filter(s => s.finalStatus === 'มาสาย').length} คน
+                  {counts.late} คน
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400 font-bold">ขาดเรียน:</span>
                 <span className="font-bold text-red-700">
-                  {attendanceEvaluationList.filter(s => s.finalStatus === 'ขาดเรียน').length} คน
+                  {counts.absent} คน
                 </span>
               </div>
             </div>
@@ -794,16 +998,12 @@ export default function AttendancePage() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
             {alertModal.isSuccess ? (
-              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-sm">
+                PASS
               </div>
             ) : (
-              <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-7 h-7" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
-                </svg>
+              <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-sm">
+                ERR
               </div>
             )}
 
