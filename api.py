@@ -16,8 +16,12 @@ app = FastAPI(title="Face Attendance API")
 # หมายเหตุ: เมื่อใช้ allow_origins=["*"] จะต้องตั้ง allow_credentials=False ตามข้อกำหนดของ Browser CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=[
+        "https://face-recog-nu.vercel.app",
+        "http://localhost:3000",
+        "*"  # หรือใส่ * เพื่ออนุญาตทุกโดเมนชั่วคราว
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
