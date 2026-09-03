@@ -26,4 +26,4 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 
 # ใช้ PORT จาก Environment Variable ของ Render (ปกติ Render บังคับใช้ port 10000)
-CMD uvicorn api:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1
+CMD ["sh", "-c", "python -m uvicorn api:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1"]
