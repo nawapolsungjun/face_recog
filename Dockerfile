@@ -4,7 +4,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PORT=8000
 
-# 1. ติดตั้ง System Dependencies สำหรับ dlib, cmake และ OpenCV
+# 1. ติดตั้ง System Dependencies ที่จำเป็นสำหรับ compile dlib และ C++
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
@@ -18,12 +18,12 @@ WORKDIR /app
 
 COPY requirements.txt .
 
-# 2. ติดตั้ง setuptools, wheel และ dlib พร้อม face_recognition
+# 2. ติดตั้ง Dependencies และ face_recognition
 RUN pip install --no-cache-dir "setuptools<70" wheel
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir dlib face_recognition
 
 COPY . .
 
-# รัน uvicorn ตามพอร์ตของ Render
+# 3. รันเซิร์ฟเวอร์
 CMD ["sh", "-c", "python -m uvicorn api:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1"]
