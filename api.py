@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 import os
 from pathlib import Path
-import face_recognition
 import io
 import json
 import numpy as np
@@ -13,22 +12,23 @@ from PIL import Image, ImageOps, ImageEnhance
 
 app = FastAPI(title="Face Attendance API")
 
-# 1. CORS Configuration (เปิดรับทุกโดเมนและรองรับ Credentials)
+# 1. CORS Configuration
+# หมายเหตุ: เมื่อใช้ allow_origins=["*"] จะต้องตั้ง allow_credentials=False ตามข้อกำหนดของ Browser CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 2. ฟังก์ชันค้นหา Database Path อัตโนมัติ (รองรับทั้ง Local และ Docker บน Render)
+# 2. ฟังก์ชันค้นหา Database Path อัตโนมัติ
 def get_db_connection():
     possible_paths = [
-        Path("./attendance-web/prisma/dev.db"),  # ตอนรัน Local ที่ root
-        Path("./prisma/dev.db"),                 # กรณีรันใน attendance-web
+        Path("./attendance-web/prisma/dev.db"),
+        Path("./prisma/dev.db"),
         Path("/app/attendance-web/prisma/dev.db"),
-        Path("/app/dev.db"),                     # กรณีย้าย db มาไว้ใน root ของ container
+        Path("/app/dev.db"),
         Path("./dev.db")
     ]
     db_path = None
@@ -37,7 +37,6 @@ def get_db_connection():
             db_path = p
             break
             
-    # ถ้ายังไม่เจอ ให้ fallback สร้าง path default ไว้กัน crash
     if not db_path:
         db_path = Path("./dev.db")
         
@@ -45,7 +44,7 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-# 3. [สำคัญมากสำหรับ Render] Root Endpoint สำหรับตรวจเช็กสถานะการทำงาน
+# 3. Health Check Endpoints สำหรับ Render
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Face Recognition API is running"}
@@ -68,6 +67,7 @@ def process_image_to_np(contents):
 
 @app.post("/api/register-face-multi")
 async def register_face_multi(files: List[UploadFile] = File(...)):
+    import face_recognition  # Lazy import เพื่อเลี่ยง OOM ตอน Boot
     try:
         all_vectors = []
         for file in files:
@@ -85,6 +85,7 @@ async def register_face_multi(files: List[UploadFile] = File(...)):
 
 @app.post("/api/extract-vector")
 async def extract_vector(data: dict):
+    import face_recognition  # Lazy import
     try:
         header, encoded = data['image'].split(",", 1)
         image_data = base64.b64decode(encoded)
@@ -102,6 +103,7 @@ async def check_attendance(
     course_id: str = Form(...), 
     boxes: str = Form(...) 
 ):
+    import face_recognition  # Lazy import
     conn = None
     try:
         contents = await file.read()
@@ -123,7 +125,6 @@ async def check_attendance(
 
         current_encodings = face_recognition.face_encodings(image_np, known_face_locations=face_locations)
         
-        # เชื่อมต่อ Database ผ่านฟังก์ชันค้นหา Path อัตโนมัติ
         conn = get_db_connection()
         cursor = conn.cursor()
         
@@ -150,7 +151,7 @@ async def check_attendance(
         final_matches = [None] * len(current_encodings)
         match_distances = [1.0] * len(current_encodings)
 
-        # 1. หา Match ที่ดีที่สุดของแต่ละกรอบ
+        # 1. คำนวณระยะห่างใบหน้าที่ใกล้เคียงที่สุด
         for idx, current_vec in enumerate(current_encodings):
             best_student = None
             lowest_dist = 0.52
@@ -162,7 +163,7 @@ async def check_attendance(
                     saved_vectors = [np.array(v) for v in data] if isinstance(data, list) else [np.array(data)]
 
                     distances = face_recognition.face_distance(saved_vectors, current_vec)
-                    current_min = np.min(distances)
+                    current_min = float(np.min(distances))
 
                     if current_min < lowest_dist:
                         lowest_dist = current_min
@@ -174,7 +175,7 @@ async def check_attendance(
                 final_matches[idx] = best_student
                 match_distances[idx] = lowest_dist
 
-        # 2. De-duplication จัดการกรณีตรวจพบชื่อซ้ำในหลายกรอบ
+        # 2. De-duplication ป้องกันการตรวจจับชื่อซ้ำในภาพเดียวกัน
         used_names = {}
 
         for idx, student in enumerate(final_matches):
@@ -204,4 +205,4 @@ async def check_attendance(
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run("api:app", host="0.0.0.0", port=port, workers=1)
