@@ -1,6 +1,8 @@
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
+import os
+from pathlib import Path
 import face_recognition
 import io
 import json
@@ -9,8 +11,9 @@ import sqlite3
 import base64
 from PIL import Image, ImageOps, ImageEnhance
 
-app = FastAPI()
+app = FastAPI(title="Face Attendance API")
 
+# 1. CORS Configuration (เปิดรับทุกโดเมนและรองรับ Credentials)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,6 +21,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 2. ฟังก์ชันค้นหา Database Path อัตโนมัติ (รองรับทั้ง Local และ Docker บน Render)
+def get_db_connection():
+    possible_paths = [
+        Path("./attendance-web/prisma/dev.db"),  # ตอนรัน Local ที่ root
+        Path("./prisma/dev.db"),                 # กรณีรันใน attendance-web
+        Path("/app/attendance-web/prisma/dev.db"),
+        Path("/app/dev.db"),                     # กรณีย้าย db มาไว้ใน root ของ container
+        Path("./dev.db")
+    ]
+    db_path = None
+    for p in possible_paths:
+        if p.exists():
+            db_path = p
+            break
+            
+    # ถ้ายังไม่เจอ ให้ fallback สร้าง path default ไว้กัน crash
+    if not db_path:
+        db_path = Path("./dev.db")
+        
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+# 3. [สำคัญมากสำหรับ Render] Root Endpoint สำหรับตรวจเช็กสถานะการทำงาน
+@app.get("/")
+def read_root():
+    return {"status": "ok", "message": "Face Recognition API is running"}
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
 
 def process_image_to_np(contents):
     img = Image.open(io.BytesIO(contents))
@@ -88,11 +123,10 @@ async def check_attendance(
 
         current_encodings = face_recognition.face_encodings(image_np, known_face_locations=face_locations)
         
-        conn = sqlite3.connect('./attendance-web/prisma/dev.db')
-        conn.row_factory = sqlite3.Row
+        # เชื่อมต่อ Database ผ่านฟังก์ชันค้นหา Path อัตโนมัติ
+        conn = get_db_connection()
         cursor = conn.cursor()
         
-        # ปรับ SQL ให้ดึง firstName และ lastName แทน s.name
         query = """
             SELECT s.id, s.firstName, s.lastName, s.faceVectors 
             FROM Student s
@@ -102,7 +136,6 @@ async def check_attendance(
         cursor.execute(query, (course_id,))
         raw_students = cursor.fetchall()
 
-        # จัดเตรียมข้อมูลรายชื่อนักศึกษา
         students = []
         for s in raw_students:
             f_name = s['firstName'] or ""
@@ -170,4 +203,5 @@ async def check_attendance(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
