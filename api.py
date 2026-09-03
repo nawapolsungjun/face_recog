@@ -14,7 +14,6 @@ from PIL import Image, ImageOps, ImageEnhance
 
 app = FastAPI(title="Face Attendance API")
 
-# 1. CORS Configuration
 origins = [
     "https://face-recog-nu.vercel.app",
     "http://localhost:3000",
@@ -46,15 +45,26 @@ def read_root():
 def health_check():
     return {"status": "healthy"}
 
-def process_image_to_np(contents):
+# [จุดสำคัญที่ 1]: ปรับฟังก์ชันให้รองรับการคำนวณและส่งคืนอัตราส่วนการย่อรูป (Scale)
+def process_image_to_np(contents, return_scale=False):
     img = Image.open(io.BytesIO(contents))
     img = ImageOps.exif_transpose(img)
     img = img.convert('RGB')
+    
+    orig_w, orig_h = img.size
     img.thumbnail((600, 600), Image.Resampling.LANCZOS)
+    new_w, new_h = img.size
+    
     img = ImageOps.autocontrast(img, cutoff=0.5)
     img = ImageEnhance.Brightness(img).enhance(1.1)
     img = ImageEnhance.Contrast(img).enhance(1.2)
     img = ImageEnhance.Sharpness(img).enhance(1.5)
+    
+    if return_scale:
+        scale_x = new_w / orig_w if orig_w > 0 else 1.0
+        scale_y = new_h / orig_h if orig_h > 0 else 1.0
+        return np.array(img), scale_x, scale_y
+        
     return np.array(img)
 
 @app.post("/api/register-face-multi")
@@ -113,17 +123,25 @@ async def check_attendance(
     conn = None
     try:
         contents = await file.read()
-        image_np = process_image_to_np(contents)
+        
+        # [จุดสำคัญที่ 2]: รับค่า scale ออกมาด้วย
+        image_np, scale_x, scale_y = process_image_to_np(contents, return_scale=True)
         face_boxes_js = json.loads(boxes)
         
         img_h, img_w, _ = image_np.shape
         face_locations = []
 
         for box in face_boxes_js:
-            top = max(0, int(box['y']))
-            right = min(img_w, int(box['x'] + box['width']))
-            bottom = min(img_h, int(box['y'] + box['height']))
-            left = max(0, int(box['x']))
+            # [จุดสำคัญที่ 3]: ย่อขนาดกล่องใบหน้า (Bounding Box) ตามสเกลที่ย่อรูป
+            scaled_x = box['x'] * scale_x
+            scaled_y = box['y'] * scale_y
+            scaled_w = box['width'] * scale_x
+            scaled_h = box['height'] * scale_y
+
+            top = max(0, int(scaled_y))
+            right = min(img_w, int(scaled_x + scaled_w))
+            bottom = min(img_h, int(scaled_y + scaled_h))
+            left = max(0, int(scaled_x))
             face_locations.append((top, right, bottom, left))
 
         if not face_locations:
@@ -167,13 +185,12 @@ async def check_attendance(
 
         for idx, current_vec in enumerate(current_encodings):
             best_student = None
-            lowest_dist = 0.60  # [แก้ไข] ขยายเกณฑ์ให้จับหน้าง่ายขึ้นเป็น 0.60
+            lowest_dist = 0.55  # ปรับกลับเป็นค่าความแม่นยำมาตรฐาน
 
             for student in students:
                 try:
                     data = student['faceVectors']
                     
-                    # [แก้ไข] คลาย JSON แบบวนลูปจนกว่าจะเป็น Array ตัวเลข
                     for _ in range(4):
                         if isinstance(data, str):
                             data = json.loads(data)
@@ -185,7 +202,6 @@ async def check_attendance(
                     distances = face_recognition.face_distance(saved_vectors, current_vec)
                     current_min = float(np.min(distances))
                     
-                    # [จุดสำคัญ] ปริ้นคะแนนความเหมือนออกมาดูบน Render Log
                     print(f"DEBUG: Distance score for [{student['name']}] is: {current_min:.4f}")
 
                     if current_min < lowest_dist:
