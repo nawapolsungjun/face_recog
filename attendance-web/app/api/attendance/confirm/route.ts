@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import fs from 'fs';
-import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,7 +42,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. จัดการบันทึกรูปภาพ (รองรับทั้ง Array และ Base64)
+    // 3. จัดการเก็บรูปภาพในรูปแบบ Base64 หรือลิงก์ (ไม่ต้องเขียนลง File System บน Vercel)
     const rawImages: string[] = Array.isArray(imageUrls)
       ? imageUrls
       : imageUrl
@@ -52,22 +50,11 @@ export async function POST(request: Request) {
       : [];
 
     const savedPaths: string[] = [];
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads');
 
     if (rawImages.length > 0) {
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
-
       for (const imgStr of rawImages) {
-        if (imgStr && imgStr.startsWith('data:image')) {
-          const base64Data = imgStr.replace(/^data:image\/\w+;base64,/, '');
-          const buffer = Buffer.from(base64Data, 'base64');
-          const fileName = `session_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-          const filePath = path.join(uploadDir, fileName);
-          fs.writeFileSync(filePath, buffer);
-          savedPaths.push(`/uploads/${fileName}`);
-        } else if (imgStr && !imgStr.startsWith('blob:')) {
+        if (imgStr) {
+          // หากเป็น Base64 หรือ URL ปกติ สามารถเก็บบันทึกลง DB ได้โดยตรงทันที
           savedPaths.push(imgStr);
         }
       }
