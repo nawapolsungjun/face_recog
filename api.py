@@ -150,7 +150,7 @@ async def check_attendance(
         # ใช้ RealDictCursor เพื่อให้อ่านค่าแบบ Dictionary ได้เหมือน SQLite Row
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # ปรับ Query ให้รองรับ PostgreSQL (ต้องมี " ครอบชื่อตาราง/คอลัมน์ที่เป็นพิมพ์ใหญ่ และใช้ %s แทน ?)
+        # ปรับ Query ให้รองรับ PostgreSQL
         query = """
             SELECT s.id, s."firstName", s."lastName", s."faceVectors" 
             FROM "Student" s
@@ -181,7 +181,13 @@ async def check_attendance(
             for student in students:
                 try:
                     vector_raw = student['faceVectors']
-                    data = json.loads(vector_raw)
+                    
+                    # [แก้ไข]: รองรับทั้งกรณีที่เป็น String (เหมือน SQLite) และ List/Dict (เหมือน PostgreSQL)
+                    if isinstance(vector_raw, str):
+                        data = json.loads(vector_raw)
+                    else:
+                        data = vector_raw
+                        
                     saved_vectors = [np.array(v) for v in data] if isinstance(data, list) else [np.array(data)]
 
                     distances = face_recognition.face_distance(saved_vectors, current_vec)
@@ -190,7 +196,8 @@ async def check_attendance(
                     if current_min < lowest_dist:
                         lowest_dist = current_min
                         best_student = {"id": student['id'], "name": student['name']}
-                except Exception:
+                except Exception as e:
+                    print(f"Compare Error for {student['name']}: {str(e)}")
                     continue
             
             if best_student:
