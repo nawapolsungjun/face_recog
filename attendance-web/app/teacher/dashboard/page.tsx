@@ -113,7 +113,7 @@ export default function TeacherDashboard() {
           const resJson = await res.json();
           if (resJson.success && resJson.data) {
             const freshName = `${resJson.data.firstName || ''} ${resJson.data.lastName || ''}`.trim() || initialFullName;
-            setTeacherInfo((prev: any) => ({
+            setTeacherInfo((prev) => ({
               ...prev,
               ...resJson.data,
               displayName: freshName,
