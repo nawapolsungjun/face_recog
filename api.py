@@ -1,5 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from typing import List
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ import json
 import numpy as np
 import sqlite3
 import base64
+import gc
 from PIL import Image, ImageOps, ImageEnhance
 
 app = FastAPI(title="Face Attendance API")
@@ -65,6 +67,9 @@ def process_image_to_np(contents):
     img = ImageOps.exif_transpose(img)
     img = img.convert('RGB')
     
+    # [จุดสำคัญ]: ย่อขนาดรูปภาพไม่ให้เกิน 600px ลดการใช้ RAM ป้องกัน Render ล่ม
+    img.thumbnail((600, 600), Image.Resampling.LANCZOS)
+    
     # Preprocessing เพิ่มความคมชัด
     img = ImageOps.autocontrast(img, cutoff=0.5)
     img = ImageEnhance.Brightness(img).enhance(1.1)
@@ -75,21 +80,50 @@ def process_image_to_np(contents):
 @app.post("/api/register-face-multi")
 async def register_face_multi(files: List[UploadFile] = File(...)):
     import face_recognition  # Lazy import เพื่อเลี่ยง OOM ตอน Boot
+    all_vectors = []
+    errors = []
+
     try:
-        all_vectors = []
-        for file in files:
-            contents = await file.read()
-            image_np = process_image_to_np(contents)
-            encodings = face_recognition.face_encodings(image_np)
-            if len(encodings) > 0:
-                all_vectors.append(encodings[0].tolist())
-        
+        for index, file in enumerate(files):
+            try:
+                contents = await file.read()
+                if not contents:
+                    continue
+                
+                image_np = process_image_to_np(contents)
+                encodings = face_recognition.face_encodings(image_np)
+                
+                if len(encodings) > 0:
+                    all_vectors.append(encodings[0].tolist())
+                else:
+                    errors.append(f"รูปที่ {index + 1}: ไม่พบใบหน้า")
+                
+                # ล้าง Memory ทันทีในแต่ละรูป
+                del contents
+                del image_np
+                gc.collect()
+
+            except Exception as img_err:
+                errors.append(f"รูปที่ {index + 1}: {str(img_err)}")
+
         if len(all_vectors) > 0:
-            return {"success": True, "face_vectors": all_vectors, "vector_count": len(all_vectors)}
-        return {"success": False, "error": "AI หาใบหน้าไม่เจอ"}
+            return {
+                "success": True, 
+                "face_vectors": all_vectors, 
+                "vector_count": len(all_vectors),
+                "warnings": errors
+            }
+        
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error": "ไม่พบใบหน้าจากรูปที่ส่งมา", "details": errors}
+        )
     except Exception as e:
         print(f"Error in register_face_multi: {str(e)}")
-        return {"success": False, "error": str(e)}
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
 
 @app.post("/api/extract-vector")
 async def extract_vector(data: dict):
@@ -99,12 +133,20 @@ async def extract_vector(data: dict):
         image_data = base64.b64decode(encoded)
         image_np = process_image_to_np(image_data)
         encodings = face_recognition.face_encodings(image_np)
+        
+        del image_data
+        del image_np
+        gc.collect()
+
         if len(encodings) > 0:
             return {"success": True, "vector": encodings[0].tolist()}
         return {"success": False, "error": "ไม่พบใบหน้า"}
     except Exception as e:
         print(f"Error in extract_vector: {str(e)}")
-        return {"success": False, "error": str(e)}
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
 
 @app.post("/api/check-attendance-group")
 async def check_attendance(
@@ -130,9 +172,17 @@ async def check_attendance(
             face_locations.append((top, right, bottom, left))
 
         if not face_locations:
+            del contents
+            del image_np
+            gc.collect()
             return {"success": True, "matches": []}
 
         current_encodings = face_recognition.face_encodings(image_np, known_face_locations=face_locations)
+        
+        # คืน Memory ภาพทันทีเมื่อสกัด Vector เสร็จ
+        del contents
+        del image_np
+        gc.collect()
         
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -209,7 +259,10 @@ async def check_attendance(
     except Exception as e:
         print(f"Python Error: {str(e)}")
         if conn: conn.close()
-        return {"success": False, "error": str(e)}
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
 
 if __name__ == "__main__":
     import uvicorn
