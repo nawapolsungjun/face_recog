@@ -12,18 +12,21 @@ from PIL import Image, ImageOps, ImageEnhance
 
 app = FastAPI(title="Face Attendance API")
 
-# 1. CORS Configuration
-# หมายเหตุ: เมื่อใช้ allow_origins=["*"] จะต้องตั้ง allow_credentials=False ตามข้อกำหนดของ Browser CORS
+# 1. CORS Configuration ที่ถูกต้องตามมาตรฐานเบราว์เซอร์
+origins = [
+    "https://face-recog-nu.vercel.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://face-recog-nu.vercel.app",
-        "http://localhost:3000",
-        "*"  # หรือใส่ * เพื่ออนุญาตทุกโดเมนชั่วคราว
-    ],
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # รองรับทุก Preview deployment บน Vercel
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # 2. ฟังก์ชันค้นหา Database Path อัตโนมัติ
@@ -85,6 +88,7 @@ async def register_face_multi(files: List[UploadFile] = File(...)):
             return {"success": True, "face_vectors": all_vectors, "vector_count": len(all_vectors)}
         return {"success": False, "error": "AI หาใบหน้าไม่เจอ"}
     except Exception as e:
+        print(f"Error in register_face_multi: {str(e)}")
         return {"success": False, "error": str(e)}
 
 @app.post("/api/extract-vector")
@@ -99,6 +103,7 @@ async def extract_vector(data: dict):
             return {"success": True, "vector": encodings[0].tolist()}
         return {"success": False, "error": "ไม่พบใบหน้า"}
     except Exception as e:
+        print(f"Error in extract_vector: {str(e)}")
         return {"success": False, "error": str(e)}
 
 @app.post("/api/check-attendance-group")
@@ -209,4 +214,5 @@ async def check_attendance(
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("api:app", host="0.0.0.0", port=port, workers=1)
+    # ปรับชื่อโมดูลให้ตรงกับชื่อไฟล์ของคุณ (เช่น api:app หรือ main:app)
+    uvicorn.run(app, host="0.0.0.0", port=port, workers=1)
