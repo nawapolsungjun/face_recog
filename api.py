@@ -150,15 +150,18 @@ async def check_attendance(
         # ใช้ RealDictCursor เพื่อให้อ่านค่าแบบ Dictionary ได้เหมือน SQLite Row
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # ปรับ Query ให้รองรับ PostgreSQL
+        # ปรับ Query ให้รองรับ PostgreSQL โดยใช้ CAST เป็น TEXT ป้องกัน Error จาก UUID/CUID 
         query = """
             SELECT s.id, s."firstName", s."lastName", s."faceVectors" 
             FROM "Student" s
-            JOIN "_CourseToStudent" cts ON s.id = cts."B" 
-            WHERE cts."A" = %s AND s."faceVectors" IS NOT NULL
+            JOIN "_CourseToStudent" cts ON CAST(s.id AS TEXT) = CAST(cts."B" AS TEXT)
+            WHERE CAST(cts."A" AS TEXT) = %s AND s."faceVectors" IS NOT NULL
         """
-        cursor.execute(query, (course_id,))
+        cursor.execute(query, (str(course_id).strip(),))
         raw_students = cursor.fetchall()
+        
+        # เพิ่มบรรทัด Log ดูจำนวนนักศึกษาบน Render
+        print(f"DEBUG: Found {len(raw_students)} enrolled students for course {course_id}")
 
         students = []
         for s in raw_students:
@@ -182,11 +185,16 @@ async def check_attendance(
                 try:
                     vector_raw = student['faceVectors']
                     
-                    # [แก้ไข]: รองรับทั้งกรณีที่เป็น String (เหมือน SQLite) และ List/Dict (เหมือน PostgreSQL)
+                    # [แก้ไข]: ระบบแกะ JSON อัจฉริยะ ป้องกันข้อมูล String ซ้อน String
                     if isinstance(vector_raw, str):
                         data = json.loads(vector_raw)
+                        # หากคลายครั้งแรกแล้วยังเป็น string ให้คลายอีกครั้ง (เผื่อเจอ '[[...]]')
+                        if isinstance(data, str):
+                            data = json.loads(data)
                     else:
                         data = vector_raw
+                        if isinstance(data, str):
+                            data = json.loads(data)
                         
                     saved_vectors = [np.array(v) for v in data] if isinstance(data, list) else [np.array(data)]
 
