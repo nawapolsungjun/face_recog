@@ -213,24 +213,37 @@ export default function AttendancePage() {
   };
 
   const drawBoxes = (image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
-    canvas.width = image.clientWidth;
-    canvas.height = image.clientHeight;
+    const displayWidth = image.clientWidth;
+    const displayHeight = image.clientHeight;
+    
+    if (displayWidth === 0 || displayHeight === 0) return;
+
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+    
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const scaleX = image.clientWidth / image.naturalWidth;
-    const scaleY = image.clientHeight / image.naturalHeight;
+
+    const scaleX = displayWidth / image.naturalWidth;
+    const scaleY = displayHeight / image.naturalHeight;
 
     boxes.forEach((box, index) => {
       const name = matches[index];
       const isMatched = name && name !== "Unknown";
-      const dx = box.x * scaleX, dy = box.y * scaleY, dw = box.width * scaleX, dh = box.height * scaleY;
+      
+      const dx = box.x * scaleX;
+      const dy = box.y * scaleY;
+      const dw = box.width * scaleX;
+      const dh = box.height * scaleY;
+
       ctx.strokeStyle = isMatched ? '#10b981' : '#ef4444';
       ctx.lineWidth = 3;
       ctx.strokeRect(dx, dy, dw, dh);
+      
       ctx.font = 'bold 12px Arial';
       ctx.fillStyle = isMatched ? '#10b981' : '#ef4444';
-      ctx.fillText(name || 'Unknown', dx, dy - 5);
+      ctx.fillText(name || 'Unknown', dx, dy > 15 ? dy - 5 : dy + 15);
     });
   };
 
