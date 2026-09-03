@@ -31,13 +31,10 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# 2. ฟังก์ชันเชื่อมต่อ PostgreSQL (Supabase)
 def get_db_connection():
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
         raise Exception("ไม่พบตัวแปร DATABASE_URL ใน Environment")
-    
-    # เชื่อมต่อ Supabase
     conn = psycopg2.connect(db_url, sslmode='require')
     return conn
 
@@ -65,7 +62,6 @@ async def register_face_multi(files: List[UploadFile] = File(...)):
     import face_recognition
     all_vectors = []
     errors = []
-
     try:
         for index, file in enumerate(files):
             try:
@@ -73,12 +69,10 @@ async def register_face_multi(files: List[UploadFile] = File(...)):
                 if not contents: continue
                 image_np = process_image_to_np(contents)
                 encodings = face_recognition.face_encodings(image_np)
-                
                 if len(encodings) > 0:
                     all_vectors.append(encodings[0].tolist())
                 else:
                     errors.append(f"รูปที่ {index + 1}: ไม่พบใบหน้า")
-                
                 del contents
                 del image_np
                 gc.collect()
@@ -87,7 +81,6 @@ async def register_face_multi(files: List[UploadFile] = File(...)):
 
         if len(all_vectors) > 0:
             return {"success": True, "face_vectors": all_vectors, "vector_count": len(all_vectors), "warnings": errors}
-        
         return JSONResponse(status_code=400, content={"success": False, "error": "ไม่พบใบหน้า", "details": errors})
     except Exception as e:
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
@@ -100,7 +93,6 @@ async def extract_vector(data: dict):
         image_data = base64.b64decode(encoded)
         image_np = process_image_to_np(image_data)
         encodings = face_recognition.face_encodings(image_np)
-        
         del image_data
         del image_np
         gc.collect()
@@ -141,16 +133,13 @@ async def check_attendance(
             return {"success": True, "matches": []}
 
         current_encodings = face_recognition.face_encodings(image_np, known_face_locations=face_locations)
-        
         del contents
         del image_np
         gc.collect()
         
         conn = get_db_connection()
-        # ใช้ RealDictCursor เพื่อให้อ่านค่าแบบ Dictionary ได้เหมือน SQLite Row
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # ปรับ Query ให้รองรับ PostgreSQL โดยใช้ CAST เป็น TEXT ป้องกัน Error จาก UUID/CUID 
         query = """
             SELECT s.id, s."firstName", s."lastName", s."faceVectors" 
             FROM "Student" s
@@ -160,7 +149,6 @@ async def check_attendance(
         cursor.execute(query, (str(course_id).strip(),))
         raw_students = cursor.fetchall()
         
-        # เพิ่มบรรทัด Log ดูจำนวนนักศึกษาบน Render
         print(f"DEBUG: Found {len(raw_students)} enrolled students for course {course_id}")
 
         students = []
@@ -179,27 +167,26 @@ async def check_attendance(
 
         for idx, current_vec in enumerate(current_encodings):
             best_student = None
-            lowest_dist = 0.55  # ปรับเกณฑ์ให้ยืดหยุ่นขึ้นเล็กน้อยเป็น 0.55
+            lowest_dist = 0.60  # [แก้ไข] ขยายเกณฑ์ให้จับหน้าง่ายขึ้นเป็น 0.60
 
             for student in students:
                 try:
-                    vector_raw = student['faceVectors']
+                    data = student['faceVectors']
                     
-                    # [แก้ไข]: ระบบแกะ JSON อัจฉริยะ ป้องกันข้อมูล String ซ้อน String
-                    if isinstance(vector_raw, str):
-                        data = json.loads(vector_raw)
-                        # หากคลายครั้งแรกแล้วยังเป็น string ให้คลายอีกครั้ง (เผื่อเจอ '[[...]]')
+                    # [แก้ไข] คลาย JSON แบบวนลูปจนกว่าจะเป็น Array ตัวเลข
+                    for _ in range(4):
                         if isinstance(data, str):
                             data = json.loads(data)
-                    else:
-                        data = vector_raw
-                        if isinstance(data, str):
-                            data = json.loads(data)
+                        else:
+                            break
                         
                     saved_vectors = [np.array(v) for v in data] if isinstance(data, list) else [np.array(data)]
 
                     distances = face_recognition.face_distance(saved_vectors, current_vec)
                     current_min = float(np.min(distances))
+                    
+                    # [จุดสำคัญ] ปริ้นคะแนนความเหมือนออกมาดูบน Render Log
+                    print(f"DEBUG: Distance score for [{student['name']}] is: {current_min:.4f}")
 
                     if current_min < lowest_dist:
                         lowest_dist = current_min
@@ -209,6 +196,7 @@ async def check_attendance(
                     continue
             
             if best_student:
+                print(f"DEBUG: Matched index {idx} with {best_student['name']} (Score: {lowest_dist:.4f})")
                 final_matches[idx] = best_student
                 match_distances[idx] = lowest_dist
 
@@ -217,7 +205,6 @@ async def check_attendance(
             if student:
                 name = student['name']
                 dist = match_distances[idx]
-
                 if name in used_names:
                     if dist < used_names[name]['dist']:
                         final_matches[used_names[name]['index']] = None
