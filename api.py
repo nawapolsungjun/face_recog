@@ -51,8 +51,8 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-# 3. Health Check Endpoints สำหรับ Render
-@app.get("/")
+# ปรับให้รับทั้ง GET และ HEAD
+@app.api_route("/", methods=["GET", "HEAD"])
 def read_root():
     return {"status": "ok", "message": "Face Recognition API is running"}
 
