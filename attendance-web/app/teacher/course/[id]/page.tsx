@@ -5,6 +5,9 @@ import * as faceapi from 'face-api.js';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+// URL เชื่อมต่อ AI Backend (ดึงจาก Environment Variable หรือใช้ Render URL อัตโนมัติ)
+const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://face-recog-usa4.onrender.com';
+
 interface ScanResult {
   url: string;
   boxes: any[];
@@ -268,10 +271,14 @@ export default function AttendancePage() {
           formData.append('boxes', JSON.stringify(currentBoxes));
           formData.append('course_id', courseId);
 
-          const response = await fetch('http://localhost:8000/api/check-attendance-group', {
+          const response = await fetch(`${AI_BASE_URL}/api/check-attendance-group`, {
             method: 'POST',
             body: formData,
           });
+
+          if (!response.ok) {
+             throw new Error('AI Server ประมวลผลรูปภาพไม่สำเร็จ (อาจเกิดจากรูปใหญ่เกินไปหรือเซิร์ฟเวอร์โหลดหนัก)');
+          }
 
           const apiResult = await response.json();
           currentMatches = Array.isArray(apiResult.matches) ? apiResult.matches : [];
