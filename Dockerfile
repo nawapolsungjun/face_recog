@@ -30,7 +30,7 @@ RUN CMAKE_BUILD_PARALLEL_LEVEL=1 \
     pip install --no-cache-dir dlib
 
 # 4. ติดตั้ง face_recognition
-RUN pip install --no-cache-dir face_recognition
+RUN pip install --no-cache-dir dlib face_recognition psycopg2-binary
 
 COPY . .
 
