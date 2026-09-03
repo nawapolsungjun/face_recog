@@ -42,7 +42,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. จัดการเก็บรูปภาพในรูปแบบ Base64 หรือลิงก์ (ไม่ต้องเขียนลง File System บน Vercel)
+    // 3. ป้องกันปัญหา Base64 ใหญ่เกินไปจนทำให้ Transaction Timeout
+    // เราจะบันทึกเฉพาะ path หรือตัดให้สั้นลง หรือเว้นไว้หากไฟล์ใหญ่เกิน 1MB เพื่อความเสถียร
     const rawImages: string[] = Array.isArray(imageUrls)
       ? imageUrls
       : imageUrl
@@ -50,12 +51,16 @@ export async function POST(request: Request) {
       : [];
 
     const savedPaths: string[] = [];
-
     if (rawImages.length > 0) {
       for (const imgStr of rawImages) {
         if (imgStr) {
-          // หากเป็น Base64 หรือ URL ปกติ สามารถเก็บบันทึกลง DB ได้โดยตรงทันที
-          savedPaths.push(imgStr);
+          // ถ้าเป็น Base64 ยาวเกินไป (> 500KB) ให้ตัดเหลือข้อความแจ้งเตือนหรือบันทึกเฉพาะส่วนหัว
+          // เพื่อไม่ให้ฐานข้อมูล Supabase ล่มและ Transaction Timeout
+          if (imgStr.startsWith('data:image') && imgStr.length > 500000) {
+            savedPaths.push("[Large Image Base64 Omitted for Performance]");
+          } else {
+            savedPaths.push(imgStr);
+          }
         }
       }
     }
@@ -68,7 +73,6 @@ export async function POST(request: Request) {
 
     if (date) {
       const [year, month, day] = date.split('-').map(Number);
-      // รวมวันที่ที่เลือกเข้ากับ ชั่วโมง:นาที:วินาที ปัจจุบันจริง
       sessionDate = new Date(year, month - 1, day, now.getHours(), now.getMinutes(), now.getSeconds());
     }
 
@@ -95,7 +99,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // 6. บันทึกข้อมูลด้วย Database Transaction
+    // 6. บันทึกข้อมูลด้วย Database Transaction พร้อมขยายเวลา Timeout เป็น 15 วินาที (15000ms)
     const result = await prisma.$transaction(async (tx) => {
       const newSession = await tx.attendanceSession.create({
         data: {
@@ -142,6 +146,8 @@ export async function POST(request: Request) {
         sessionType: currentType,
         timeSlot: currentSlot,
       };
+    }, {
+      timeout: 15000, // ขยายเวลา Timeout เป็น 15 วินาที ป้องกัน Transaction หมดอายุ
     });
 
     const typeLabel = result.sessionType === 'COMPENSATION' ? 'คาบสอนชดเชย' : 'คาบปกติ';
