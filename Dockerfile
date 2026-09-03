@@ -2,9 +2,10 @@ FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=8000
+    PORT=8000 \
+    CMAKE_BUILD_PARALLEL_LEVEL=1
 
-# 1. ติดตั้ง System Dependencies ที่จำเป็นสำหรับ compile dlib และ C++
+# 1. ติดตั้งเฉพาะ C++ Toolchain และ Libraries พื้นฐาน
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
@@ -18,12 +19,19 @@ WORKDIR /app
 
 COPY requirements.txt .
 
-# 2. ติดตั้ง Dependencies และ face_recognition
+# 2. ติดตั้ง Library พื้นฐานก่อน
 RUN pip install --no-cache-dir "setuptools<70" wheel
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir dlib face_recognition
+
+# 3. ติดตั้ง dlib โดยจำกัด Memory และไม่ใช้ Parallel Build
+RUN CMAKE_BUILD_PARALLEL_LEVEL=1 pip install --no-cache-dir \
+    --config-settings="--build-option=--no" \
+    --config-settings="--build-option=DLIB_NO_GUI_SUPPORT" \
+    dlib
+
+# 4. ติดตั้ง face_recognition
+RUN pip install --no-cache-dir face_recognition
 
 COPY . .
 
-# 3. รันเซิร์ฟเวอร์
 CMD ["sh", "-c", "python -m uvicorn api:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1"]
