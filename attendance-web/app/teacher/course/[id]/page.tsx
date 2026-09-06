@@ -1,11 +1,11 @@
-// attendance-web/app/teacher/course/[id]/page.tsx
 'use client';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as faceapi from 'face-api.js';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000';
+// ชี้ตรงไปยัง Render Backend URL
+const AI_BASE_URL = 'https://face-recog-usa4.onrender.com';
 
 interface ScanResult {
   url: string;
@@ -19,6 +19,48 @@ interface StudentInCourse {
   firstName?: string;
   lastName?: string;
   name?: string;
+}
+
+// ฟังก์ชันปรับขนาดรูปถ่ายกลุ่มให้เหมาะสมก่อนประมวลผล เพื่อลดขนาด Memory
+async function resizeGroupImage(file: File, maxDimension: number = 1600): Promise<{ resizedBlob: Blob; imgElement: HTMLImageElement }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Canvas context is null'));
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+          if (!blob) return reject(new Error('Resize blob failed'));
+          const resizedImg = new Image();
+          resizedImg.onload = () => resolve({ resizedBlob: blob, imgElement: resizedImg });
+          resizedImg.src = URL.createObjectURL(blob);
+        }, 'image/jpeg', 0.90);
+      };
+      img.onerror = reject;
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function AttendancePage() {
@@ -65,11 +107,8 @@ export default function AttendancePage() {
   const [statusFilter, setStatusFilter] = useState<'ทั้งหมด' | 'มาเรียน' | 'มาสาย' | 'รอตรวจสอบ' | 'ขาดเรียน'>('ทั้งหมด');
   const [zoomedImageIdx, setZoomedImageIdx] = useState<number | null>(null);
 
-  // State สำหรับเก็บการแก้ไขสถานะด้วยมือ (Manual Status Overrides)
   const [statusOverrides, setStatusOverrides] = useState<Record<number, string>>({});
-  // State สำหรับเก็บเวลาที่แก้ไขแยกตามรายบุคคล
   const [timeOverrides, setTimeOverrides] = useState<Record<number, string>>({});
-  // State สำหรับ Modal แก้ไขสถานะขั้นสูง (แบบหน้า Report)
   const [editingStudent, setEditingStudent] = useState<{
     id: number;
     name: string;
@@ -80,7 +119,6 @@ export default function AttendancePage() {
     remark: string;
   } | null>(null);
 
-  // Toast Alert Message State
   const [toast, setToast] = useState<{
     show: boolean;
     type: 'success' | 'error';
@@ -295,7 +333,7 @@ export default function AttendancePage() {
 
     boxes.forEach((box, index) => {
       const name = matches[index];
-      const isMatched = name && name !== "Unknown";
+      const isMatched = name && name !== 'Unknown';
 
       const dx = box.x * scaleX;
       const dy = box.y * scaleY;
@@ -333,16 +371,16 @@ export default function AttendancePage() {
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
-        setStatus(`กำลังวิเคราะห์รูปที่ ${i + 1}/${selectedFiles.length}...`);
+        setStatus(`กำลังปรับขนาดและวิเคราะห์รูปที่ ${i + 1}/${selectedFiles.length}...`);
 
-        const img = new Image();
-        const objectUrl = URL.createObjectURL(file);
-        img.src = objectUrl;
-        await img.decode();
+        // 1. ปรับขนาดรูปกลุ่มบนฝั่งหน้าเว็บเพื่อประหยัด RAM ให้เซิร์ฟเวอร์ Render
+        const { resizedBlob, imgElement } = await resizeGroupImage(file, 1600);
+        const objectUrl = URL.createObjectURL(resizedBlob);
 
+        // 2. ตรวจจับตำแหน่งใบหน้าบนรูปภาพที่ปรับขนาดแล้ว
         const detections = await faceapi.detectAllFaces(
-          img,
-          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.6, maxResults: 20 })
+          imgElement,
+          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.55, maxResults: 35 })
         ).withFaceLandmarks();
 
         let currentBoxes: any[] = [];
@@ -356,8 +394,10 @@ export default function AttendancePage() {
             height: d.detection.box.height
           }));
 
+          // 3. ส่งไฟล์ที่ปรับขนาดแล้วไปยัง AI Backend
+          const resizedFile = new File([resizedBlob], file.name, { type: 'image/jpeg' });
           const formData = new FormData();
-          formData.append('file', file);
+          formData.append('file', resizedFile);
           formData.append('boxes', JSON.stringify(currentBoxes));
           formData.append('course_id', courseId);
 
@@ -374,7 +414,7 @@ export default function AttendancePage() {
           currentMatches = Array.isArray(apiResult.matches) ? apiResult.matches : [];
 
           currentMatches.forEach(name => {
-            if (name && name !== "Unknown") uniqueDetected.add(name);
+            if (name && name !== 'Unknown') uniqueDetected.add(name);
           });
         }
 
@@ -395,6 +435,7 @@ export default function AttendancePage() {
 
     } catch (err: any) {
       setStatus(`ข้อผิดพลาด: ${err.message}`);
+      showToast('error', 'เกิดข้อผิดพลาดในการสแกน', err.message);
     } finally {
       setIsLoading(false);
     }
@@ -469,12 +510,12 @@ export default function AttendancePage() {
       const sessionPrefix = `${timeSlotStr}${typePrefix}${customRemarkPrefix}`;
 
       const patternArray: number[] = previousRoundAttendance.map((session: any) => {
-         const records = session.records || session.attendances || [];
-         const prevRecord = records.find((p: any) => p.studentId === student.id || p.id === student.id || p.studentCode === student.studentCode);
-         if (prevRecord && prevRecord.status !== 'ขาดเรียน' && prevRecord.status !== 'รอตรวจสอบ') {
-           return 1;
-         }
-         return 0;
+        const records = session.records || session.attendances || [];
+        const prevRecord = records.find((p: any) => p.studentId === student.id || p.id === student.id || p.studentCode === student.studentCode);
+        if (prevRecord && prevRecord.status !== 'ขาดเรียน' && prevRecord.status !== 'รอตรวจสอบ') {
+          return 1;
+        }
+        return 0;
       });
 
       patternArray.push(isDetectedInCurrentScan ? 1 : 0);
@@ -684,9 +725,9 @@ export default function AttendancePage() {
       {toast.show && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border bg-white animate-in slide-in-from-top-4 fade-in duration-300 min-w-[320px] max-w-md border-slate-100">
           <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-            toast.type === "success" ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600"
+            toast.type === 'success' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'
           }`}>
-            {toast.type === "success" ? (
+            {toast.type === 'success' ? (
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
@@ -721,6 +762,11 @@ export default function AttendancePage() {
           ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
         <div className="text-emerald-100 font-medium text-xs md:text-sm space-y-0.5">
+          {courseInfo && (
+            <p>
+              วิชา: <span className="font-bold text-white">{courseInfo.courseName}</span> ({courseInfo.courseCode}) {courseInfo.section ? `กลุ่มเรียน: ${courseInfo.section}` : ''}
+            </p>
+          )}
         </div>
       </header>
 
@@ -1037,7 +1083,7 @@ export default function AttendancePage() {
                     item.finalStatus === 'มาเรียน' ? 'bg-emerald-50/60 border-emerald-200' :
                       item.finalStatus === 'มาสาย' ? 'bg-amber-50/60 border-amber-200' :
                         item.finalStatus === 'รอตรวจสอบ' ? 'bg-purple-50/60 border-purple-200' :
-                        'bg-red-50/60 border-red-200';
+                          'bg-red-50/60 border-red-200';
 
                   const getStatusBadge = (status: string) => {
                     switch (status) {
@@ -1235,11 +1281,11 @@ export default function AttendancePage() {
                   onChange={(e) => {
                     const nextStatus = e.target.value;
                     let nextRemark = editingStudent.remark;
-                    if (nextStatus === "มาสาย") nextRemark = "มาสาย";
-                    else if (nextStatus === "ลา") nextRemark = "ลากิจ";
-                    else if (nextStatus === "รอตรวจสอบ") nextRemark = "รอตรวจสอบ";
-                    else if (nextStatus === "มาเรียน") nextRemark = "มาเรียน";
-                    else if (nextStatus === "ขาดเรียน") nextRemark = "ขาดเรียน";
+                    if (nextStatus === 'มาสาย') nextRemark = 'มาสาย';
+                    else if (nextStatus === 'ลา') nextRemark = 'ลากิจ';
+                    else if (nextStatus === 'รอตรวจสอบ') nextRemark = 'รอตรวจสอบ';
+                    else if (nextStatus === 'มาเรียน') nextRemark = 'มาเรียน';
+                    else if (nextStatus === 'ขาดเรียน') nextRemark = 'ขาดเรียน';
 
                     setEditingStudent({
                       ...editingStudent,
@@ -1270,7 +1316,7 @@ export default function AttendancePage() {
               <div>
                 <span className="text-[11px] font-bold text-slate-400 block mb-1.5">ตัวเลือกด่วน:</span>
                 <div className="flex flex-wrap gap-1.5">
-                  {["ลากิจ", "ลาป่วย", "มาสาย", "รอตรวจสอบ", "เช็คชื่อรอบที่ 2", "เช็ครอบเก็บตก"].map((tag) => (
+                  {['ลากิจ', 'ลาป่วย', 'มาสาย', 'รอตรวจสอบ', 'เช็คชื่อรอบที่ 2', 'เช็ครอบเก็บตก'].map((tag) => (
                     <button
                       key={tag}
                       type="button"
