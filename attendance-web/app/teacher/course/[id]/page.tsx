@@ -83,16 +83,10 @@ export default function AttendancePage() {
   const [detectedStudents, setDetectedStudents] = useState<string[]>([]);
   const [status, setStatus] = useState('กำลังโหลดโมเดล AI...');
   const [isLoading, setIsLoading] = useState(true);
-  const [isMounted, setIsMounted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  });
+  // หลีกเลี่ยง Hydration Mismatch ด้วยการกำหนดเป็นค่าว่างก่อน แล้วค่อยเซ็ตใน useEffect
+  const [selectedDate, setSelectedDate] = useState<string>('');
 
   const [sessionType, setSessionType] = useState<'REGULAR' | 'COMPENSATION'>('REGULAR');
   const [slotMode, setSlotMode] = useState<'MORNING' | 'AFTERNOON' | 'SPECIAL'>('MORNING');
@@ -152,6 +146,15 @@ export default function AttendancePage() {
 
   const getAuthToken = () => localStorage.getItem('teacher_token') || localStorage.getItem('token');
 
+  // เซ็ตวันที่หลังจาก Component Mount ฝั่ง Client เรียบร้อยแล้ว
+  useEffect(() => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    setSelectedDate(`${year}-${month}-${day}`);
+  }, []);
+
   const handleSlotChange = (mode: 'MORNING' | 'AFTERNOON' | 'SPECIAL') => {
     setSlotMode(mode);
     if (mode === 'MORNING') { setStartTime('09:00'); setEndTime('12:00'); }
@@ -160,6 +163,7 @@ export default function AttendancePage() {
   };
 
   const fetchInitialData = useCallback(async () => {
+    if (!selectedDate) return;
     const token = getAuthToken();
 
     try {
@@ -247,7 +251,6 @@ export default function AttendancePage() {
   }, [courseId, selectedDate, sessionType, slotMode]);
 
   useEffect(() => {
-    setIsMounted(true);
     const loadModels = async () => {
       try {
         const MODEL_URL = '/models';
@@ -266,10 +269,10 @@ export default function AttendancePage() {
   }, []);
 
   useEffect(() => {
-    if (courseId) {
+    if (courseId && selectedDate) {
       fetchInitialData();
     }
-  }, [courseId, fetchInitialData]);
+  }, [courseId, selectedDate, fetchInitialData]);
 
   const isRoundLimitReached = dailyRoundNumber > 3;
 
@@ -715,8 +718,6 @@ export default function AttendancePage() {
       setIsSaving(false);
     }
   };
-
-  if (!isMounted) return <div className="p-20 text-center font-bold text-slate-400">กำลังเริ่มระบบ...</div>;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800 relative">
