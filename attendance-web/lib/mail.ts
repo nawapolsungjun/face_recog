@@ -1,16 +1,23 @@
 // attendance-web/lib/mail.ts
 import nodemailer from 'nodemailer';
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
-
 export async function sendResetPasswordEmail(email: string, resetUrl: string) {
   try {
+    // 1. ตรวจสอบเพื่อป้องกัน Error 500 หากลืมตั้งค่าตัวแปรใน Vercel
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      console.error('Send Email Error: ขาดการตั้งค่า EMAIL_USER หรือ EMAIL_PASS ใน Environment Variables');
+      return { success: false, error: 'Email configuration is missing.' };
+    }
+
+    // 2. สร้าง Transporter ภายในฟังก์ชัน เพื่อให้ดึงค่า Env ได้ชัวร์ๆ
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
     const mailOptions = {
       from: `"ระบบตรวจสอบรายชื่อ" <${process.env.EMAIL_USER}>`,
       to: email,
