@@ -1,4 +1,3 @@
-// attendance-web/app/student/face-enrollment/page.tsx
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -51,6 +50,48 @@ const POSE_GUIDES = [
     imgSrc: '/ex5.png',
   },
 ];
+
+// ฟังก์ชันเสริมสำหรับดึงเฉพาะใบหน้าจากรูปภาพต้นฉบับ
+async function cropFaceFromFile(file: File): Promise<File> {
+  // 1. โหลดไฟล์ภาพ
+  const img = await faceapi.bufferToImage(file);
+  
+  // 2. ตรวจจับใบหน้าด้วย Model ที่โหลดไว้แล้ว
+  const detection = await faceapi.detectSingleFace(img, new faceapi.SsdMobilenetv1Options());
+  
+  if (!detection) {
+    throw new Error(`ระบบไม่พบใบหน้าในรูปภาพ ${file.name} กรุณาเปลี่ยนรูปใหม่`);
+  }
+
+  // 3. คำนวณพิกัดและเผื่อขอบ (Padding)
+  const { x, y, width, height } = detection.box;
+  const padding = 40; 
+  
+  const canvas = document.createElement('canvas');
+  canvas.width = width + (padding * 2);
+  canvas.height = height + (padding * 2);
+  const ctx = canvas.getContext('2d');
+  
+  if (!ctx) throw new Error("เกิดข้อผิดพลาดในการประมวลผลรูปภาพ");
+
+  // วาดรูปใหม่โดยดึงมาแค่กรอบใบหน้า
+  ctx.drawImage(
+    img,
+    Math.max(0, x - padding), 
+    Math.max(0, y - padding), 
+    width + (padding * 2), 
+    height + (padding * 2),
+    0, 0, canvas.width, canvas.height
+  );
+
+  // 4. แปลงกลับเป็นไฟล์ (พร้อมบีบอัดคุณภาพลดขนาดไฟล์)
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) return reject(new Error("แปลงไฟล์ไม่สำเร็จ"));
+      resolve(new File([blob], `cropped_${file.name}`, { type: file.type || 'image/jpeg' }));
+    }, file.type || 'image/jpeg', 0.85); 
+  });
+}
 
 export default function FaceEnrollmentPage() {
   const router = useRouter();
@@ -196,11 +237,23 @@ export default function FaceEnrollmentPage() {
 
       let allFinalVectors = [...vectorsToSave];
 
+      // โค้ดส่วนที่เพิ่มการ Crop ใบหน้า
       if (files && files.length > 0) {
-        setStatus('กำลังสกัดข้อมูลจากไฟล์รูปภาพ...');
+        setStatus('กำลังวิเคราะห์และครอบตัดเฉพาะใบหน้าจากรูปภาพ...');
         const faceFormData = new FormData();
-        Array.from(files).forEach(file => faceFormData.append('files', file));
+        
+        // วนลูป Crop ทีละรูปก่อนบรรจุลง FormData เพื่อลดขนาด Payload
+        const fileArray = Array.from(files);
+        for (let i = 0; i < fileArray.length; i++) {
+          try {
+            const croppedFile = await cropFaceFromFile(fileArray[i]);
+            faceFormData.append('files', croppedFile);
+          } catch (err: any) {
+            throw new Error(`รูปที่ ${i + 1}: ${err.message}`);
+          }
+        }
 
+        setStatus('กำลังส่งข้อมูลใบหน้าไปประมวลผลบนเซิร์ฟเวอร์ AI...');
         const aiResponse = await fetch(`${AI_BASE_URL}/api/register-face-multi`, {
           method: 'POST',
           body: faceFormData
