@@ -1,24 +1,58 @@
 // attendance-web/app/teacher/course/[id]/history/page.tsx
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+function parseSessionImages(rawImageUrl: string | null | undefined): string[] {
+  if (!rawImageUrl || typeof rawImageUrl !== 'string') return [];
+  const trimmed = rawImageUrl.trim();
+  if (!trimmed || trimmed.includes('[Large Image Base64 Omitted')) return [];
+
+  if (trimmed.startsWith('data:image/')) {
+    if (trimmed.includes('|||')) {
+      return trimmed.split('|||').filter(Boolean);
+    }
+    return [trimmed];
+  }
+
+  if (trimmed.includes('|||')) {
+    return trimmed.split('|||').map((s) => s.trim()).filter(Boolean);
+  }
+
+  if (trimmed.includes(',')) {
+    return trimmed.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  return [trimmed];
+}
+
 export default function AttendanceHistoryPage() {
+  const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
   const courseId = params.id as string;
   const filterDateParam = searchParams.get('date');
   const filterTimeSlotParam = searchParams.get('timeSlot');
 
-  const [courseInfo, setCourseInfo] = useState<{ courseName: string; courseCode: string } | null>(null);
+  const [courseInfo, setCourseInfo] = useState<{
+    courseName: string;
+    courseCode: string;
+    section?: string;
+    semester?: string;
+    academicYear?: string;
+    joinCode?: string;
+    teacher?: any;
+  } | null>(null);
+
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
 
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+
   const getAuthToken = () => localStorage.getItem('teacher_token') || localStorage.getItem('token');
 
-  // ดึงข้อมูลชื่อวิชา
   const fetchCourseInfo = useCallback(async () => {
     const token = getAuthToken();
     try {
@@ -29,7 +63,12 @@ export default function AttendanceHistoryPage() {
       if (json.success && json.data) {
         setCourseInfo({
           courseName: json.data.courseName,
-          courseCode: json.data.courseCode
+          courseCode: json.data.courseCode,
+          section: json.data.section,
+          semester: json.data.semester,
+          academicYear: json.data.academicYear,
+          joinCode: json.data.joinCode,
+          teacher: json.data.teacher
         });
       }
     } catch (err) {
@@ -37,7 +76,6 @@ export default function AttendanceHistoryPage() {
     }
   }, [courseId]);
 
-  // ดึงประวัติการเช็คชื่อตามรอบ พร้อมรองรับการกรองตามวันที่และช่วงเวลา
   const fetchHistory = useCallback(async () => {
     setLoading(true);
     const token = getAuthToken();
@@ -68,7 +106,6 @@ export default function AttendanceHistoryPage() {
       if (json.success && Array.isArray(json.data)) {
         let list = json.data;
 
-        // กรองช่วงเวลาอย่างแม่นยำ ป้องกันคาบชดเชยหรือช่วงเวลาอื่นปะปน
         if (filterTimeSlotParam) {
           const targetSlot = filterTimeSlotParam.trim();
           list = list.filter((session: any) => {
@@ -99,40 +136,23 @@ export default function AttendanceHistoryPage() {
     }
   }, [courseId, fetchCourseInfo, fetchHistory]);
 
+  const teacherName = courseInfo?.teacher?.firstName
+    ? `${courseInfo.teacher.firstName} ${courseInfo.teacher.lastName || ''}`.trim()
+    : courseInfo?.teacher?.name || 'ไม่ระบุอาจารย์';
+
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
 
-      {/* 1. Header */}
+      {/* Header */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative print:hidden">
-        <div className="absolute top-6 left-6">
-          <Link
-            href={`/teacher/report/${courseId}`}
-            className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-2 text-xs uppercase tracking-wider transition-all"
-          >
-            ← Back to Report
-          </Link>
-        </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
           ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
-        <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
-        </p>
       </header>
 
-      {/* 2. Navigation Tabs Bar */}
+      {/* Navigation Tabs Bar */}
       <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto print:hidden">
         <div className="max-w-5xl mx-auto flex items-center justify-center gap-1 min-w-max">
-          <Link
-            href={`/teacher/course/${courseId}`}
-            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm text-emerald-50 hover:bg-emerald-700/50 hover:text-white rounded-t-xl transition-all"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            เช็คชื่อสแกนใบหน้า
-          </Link>
-
           <Link
             href={`/teacher/report/${courseId}`}
             className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm text-emerald-50 hover:bg-emerald-700/50 hover:text-white rounded-t-xl transition-all"
@@ -140,19 +160,8 @@ export default function AttendanceHistoryPage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            รายงานประจำวัน
+            รายงานการเข้าเรียน
           </Link>
-
-          <Link
-            href={`/teacher/course/${courseId}/students`}
-            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm text-emerald-50 hover:bg-emerald-700/50 hover:text-white rounded-t-xl transition-all"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-            </svg>
-            จัดการรายชื่อนักศึกษา
-          </Link>
-
           <button
             type="button"
             className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm bg-white text-slate-800 shadow rounded-t-xl"
@@ -165,37 +174,67 @@ export default function AttendanceHistoryPage() {
         </div>
       </nav>
 
-      {/* 3. Main Content */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
+      {/* Main Content */}
+      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 space-y-6">
+        {/* ปุ่มย้อนกลับ */}
+        <div>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#0f766e] transition-colors cursor-pointer"
+          >
+            ← ย้อนกลับ
+          </button>
+        </div>
 
-        {/* การ์ดสรุปข้อมูล */}
-        <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <span className="text-[18px] font-bold text-slate-400">ประวัติการบันทึก</span>
-            <h2 className="text-xl font-black text-slate-800">
-              วิชา: <span className="font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName ? `${courseInfo.courseName}` : ''}
-            </h2>
-            {(filterDateParam || filterTimeSlotParam) && (
-              <p className="text-xs text-slate-500 font-bold mt-1">
-                {filterDateParam && (
-                  <>
-                    กรองเฉพาะวันที่: <span className="text-emerald-700 font-mono">{filterDateParam}</span>
-                  </>
-                )}
-                {filterTimeSlotParam && (
-                  <span className="ml-2">
-                    ช่วงเวลา: <span className="text-emerald-700 font-mono">[{filterTimeSlotParam} น.]</span>
+        {/* การ์ดข้อมูลวิชา (สไตล์เดียวกับหน้า Admin) */}
+        <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs text-slate-400 font-bold">
+                  อาจารย์ผู้สอน: <span className="text-slate-700">{teacherName}</span>
+                </span>
+              </div>
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+                <span className="font-mono text-emerald-700">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName || ''}
+              </h2>
+              <div className="flex flex-wrap items-center gap-3 mt-3 text-xs font-bold text-slate-600">
+                <span className="bg-slate-100 px-3 py-1 rounded-md">กลุ่มเรียน: {courseInfo?.section || '-'}</span>
+                <span className="bg-slate-100 px-3 py-1 rounded-md">เทอม: {courseInfo?.semester || '-'}/{courseInfo?.academicYear || '-'}</span>
+                {courseInfo?.joinCode && (
+                  <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-md flex items-center gap-1.5 uppercase tracking-wider shadow-sm">
+                    <span>Join Code:</span> 
+                    <span className="select-all">{courseInfo.joinCode}</span>
                   </span>
                 )}
-                <Link href={`/teacher/course/${courseId}/history`} className="ml-2 text-xs text-slate-400 hover:text-slate-600 underline">
-                  (แสดงทั้งหมด)
-                </Link>
-              </p>
-            )}
+              </div>
+
+              {(filterDateParam || filterTimeSlotParam) && (
+                <p className="text-xs text-slate-500 font-bold mt-3 pt-3 border-t border-slate-100">
+                  {filterDateParam && (
+                    <>
+                      กรองเฉพาะวันที่: <span className="text-emerald-700 font-mono">{filterDateParam}</span>
+                    </>
+                  )}
+                  {filterTimeSlotParam && (
+                    <span className="ml-2">
+                      ช่วงเวลา: <span className="text-emerald-700 font-mono">[{filterTimeSlotParam} น.]</span>
+                    </span>
+                  )}
+                  <Link href={`/teacher/course/${courseId}/history`} className="ml-2 text-xs text-slate-400 hover:text-slate-600 underline">
+                    (แสดงทั้งหมด)
+                  </Link>
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col items-end gap-2">
+              <span className="text-xs font-bold px-3.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100">
+                บันทึกแล้วทั้งหมด {sessions.length} รอบ
+              </span>
+            </div>
           </div>
-          <span className="bg-emerald-50 text-emerald-700 font-bold text-xs px-3.5 py-1.5 rounded-xl border border-emerald-100">
-            บันทึกแล้วทั้งหมด {sessions.length} รอบ
-          </span>
         </div>
 
         {loading ? (
@@ -203,11 +242,9 @@ export default function AttendanceHistoryPage() {
             กำลังโหลดประวัติการเช็คชื่อ...
           </div>
         ) : sessions.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
             {sessions.map((session, index) => {
-              const imageList = session.imageUrl
-                ? session.imageUrl.split(',').filter((url: string) => url.trim() !== '')
-                : [];
+              const imageList = parseSessionImages(session.imageUrl);
               const roundNum = session.roundNumber || session.round || (sessions.length - index);
               const dateFormatted = session.createdAt
                 ? new Date(session.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })
@@ -232,12 +269,24 @@ export default function AttendanceHistoryPage() {
                     </div>
 
                     {imageList.length > 0 ? (
-                      <div className="relative w-full h-44 bg-slate-100 rounded-xl overflow-hidden mb-3 border border-slate-100">
+                      <div
+                        onClick={() => setPreviewImageUrl(imageList[0])}
+                        className="relative w-full h-44 bg-slate-100 rounded-xl overflow-hidden mb-3 border border-slate-100 cursor-zoom-in group"
+                        title="คลิกเพื่อขยายรูปภาพขนาดใหญ่"
+                      >
                         <img
                           src={imageList[0]}
                           alt={`รอบที่ ${roundNum}`}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                         />
+                        <div className="absolute inset-0 bg-slate-900/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                          <span className="bg-slate-900/80 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm shadow flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                            </svg>
+                            คลิกเพื่อดูภาพขยาย
+                          </span>
+                        </div>
                         {imageList.length > 1 && (
                           <span className="absolute bottom-2 right-2 bg-slate-900/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-sm">
                             +{imageList.length - 1} รูปเพิ่ม
@@ -278,7 +327,7 @@ export default function AttendanceHistoryPage() {
         )}
       </main>
 
-      {/* 4. Footer */}
+      {/* Footer */}
       <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm mt-auto">
         © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
@@ -288,8 +337,8 @@ export default function AttendanceHistoryPage() {
 
       {/* Modal แสดงรายละเอียดการเช็คชื่อ */}
       {selectedSession && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-5 border-b border-slate-100 pb-3">
               <div>
                 <h3 className="font-black text-lg text-slate-800">
@@ -311,31 +360,38 @@ export default function AttendanceHistoryPage() {
             {selectedSession.imageUrl && (
               <div className="mb-6">
                 <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">
-                  รูปภาพประกอบการเช็คชื่อ
+                  รูปภาพประกอบการเช็คชื่อ (คลิกเพื่อขยาย)
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {selectedSession.imageUrl
-                    .split(',')
-                    .filter((url: string) => url.trim() !== '')
-                    .map((imgUrl: string, idx: number) => (
-                      <div
-                        key={idx}
-                        className="rounded-xl overflow-hidden border border-slate-200/60 bg-slate-900 h-44"
-                      >
-                        <img
-                          src={imgUrl.trim()}
-                          alt={`รูปถ่ายการเช็คชื่อ #${idx + 1}`}
-                          className="w-full h-full object-contain"
-                        />
+                  {parseSessionImages(selectedSession.imageUrl).map((imgUrl: string, idx: number) => (
+                    <div
+                      key={idx}
+                      onClick={() => setPreviewImageUrl(imgUrl.trim())}
+                      className="relative rounded-xl overflow-hidden border border-slate-200/60 bg-slate-900 min-h-[180px] flex items-center justify-center cursor-zoom-in group"
+                      title="คลิกเพื่อดูภาพขยายขนาดใหญ่"
+                    >
+                      <img
+                        src={imgUrl.trim()}
+                        alt={`รูปถ่ายการเช็คชื่อ #${idx + 1}`}
+                        className="max-h-72 w-auto max-w-full object-contain block rounded-lg group-hover:opacity-90 transition-opacity"
+                      />
+                      <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                        <span className="bg-slate-900/80 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm shadow flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                          </svg>
+                          คลิกขยาย
+                        </span>
                       </div>
-                    ))}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
 
             <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-2xl overflow-hidden">
               {(selectedSession.attendances || selectedSession.records) &&
-              (selectedSession.attendances?.length > 0 || selectedSession.records?.length > 0) ? (
+                (selectedSession.attendances?.length > 0 || selectedSession.records?.length > 0) ? (
                 (selectedSession.attendances || selectedSession.records).map((att: any, idx: number) => {
                   const studentName =
                     att.student?.name ||
@@ -360,15 +416,14 @@ export default function AttendanceHistoryPage() {
                         )}
                       </div>
                       <span
-                        className={`text-xs font-bold px-3 py-1 rounded-xl border shrink-0 ${
-                          att.status === 'มาเรียน'
+                        className={`text-xs font-bold px-3 py-1 rounded-xl border shrink-0 ${att.status === 'มาเรียน'
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                             : att.status === 'มาสาย'
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : att.status === 'ลา'
-                            ? 'bg-blue-50 text-blue-700 border-blue-200'
-                            : 'bg-red-50 text-red-700 border-red-200'
-                        }`}
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : att.status === 'ลา'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : 'bg-red-50 text-red-700 border-red-200'
+                          }`}
                       >
                         {att.status}
                       </span>
@@ -380,6 +435,44 @@ export default function AttendanceHistoryPage() {
                   ไม่มีรายการเช็คชื่อรายบุคคลในรอบนี้
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox Modal: ขยายรูปภาพผลการสแกนขนาดเต็มจอ */}
+      {previewImageUrl && (
+        <div
+          className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <div
+            className="relative max-w-5xl w-full max-h-[94vh] bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col p-4 md:p-6 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center pb-3 mb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <h3 className="text-sm md:text-base font-black text-slate-800">
+                  รูปภาพผลการสแกนใบหน้า (ขนาดขยาย)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewImageUrl(null)}
+                className="text-slate-400 hover:text-slate-700 text-2xl font-bold p-1 cursor-pointer"
+                title="ปิด"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="relative overflow-auto max-h-[82vh] flex items-center justify-center rounded-2xl bg-slate-900 border border-slate-200 p-2">
+              <img
+                src={previewImageUrl}
+                alt="Enlarged Preview"
+                className="max-h-[78vh] w-auto max-w-full object-contain block rounded-lg shadow-lg"
+              />
             </div>
           </div>
         </div>

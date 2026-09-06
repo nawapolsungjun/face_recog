@@ -1,9 +1,12 @@
+// attendance-web/app/api/courses/[id]/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * 🔍 [GET] - ดึงข้อมูลรายวิชาและรายชื่อนักศึกษาพร้อมประวัติการเข้าเรียน
- * ใช้สำหรับ: หน้า Student List และการโชว์ Drawer สรุปรายคน
+ * ใช้สำหรับ: หน้า Student List, หน้า Report และการโชว์ข้อมูลวิชา
  */
 export async function GET(
   request: Request,
@@ -20,6 +23,7 @@ export async function GET(
     const course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
+        teacher: true, // ✅ เพิ่มบรรทัดนี้ เพื่อดึงข้อมูลอาจารย์ผู้สอนมาด้วย
         students: {
           include: {
             // 🚀 ดึงประวัติการเช็คชื่อพ่วงมาด้วย (ชื่อฟิลด์ต้องตรงกับ schema.prisma)
@@ -53,7 +57,6 @@ export async function GET(
 
 /**
  * ⚙️ [PATCH] - แก้ไขข้อมูลวิชา หรือ จัดเก็บวิชา (Archive)
- * ใช้สำหรับ: ฟังก์ชัน 2.2 และ 2.3 ใน Modal ตั้งค่า
  */
 export async function PATCH(
   request: Request,
@@ -62,7 +65,8 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { courseName, courseCode, status } = body;
+    
+    const { courseName, courseCode, status, section, semester, academicYear, joinCode } = body;
 
     const updated = await prisma.course.update({
       where: { id },
@@ -70,6 +74,10 @@ export async function PATCH(
         ...(courseName && { courseName }),
         ...(courseCode && { courseCode }),
         ...(status && { status }), // เช่น 'ACTIVE' หรือ 'ARCHIVED'
+        ...(section && { section }),
+        ...(semester && { semester }),
+        ...(academicYear && { academicYear }),
+        ...(joinCode && { joinCode }),
       }
     });
 
@@ -82,7 +90,6 @@ export async function PATCH(
 
 /**
  * 🗑️ [DELETE] - ลบรายวิชาทิ้งถาวร
- * ใช้สำหรับ: ฟังก์ชัน 2.3 (Danger Zone)
  */
 export async function DELETE(
   request: Request,
@@ -91,15 +98,37 @@ export async function DELETE(
   try {
     const { id } = await params;
     
-    // หมายเหตุ: Prisma จะลบข้อมูลที่สัมพันธ์กัน (Cascade) 
-    // หรือต้องลบ Attendance ก่อน ขึ้นอยู่กับการตั้งค่าใน Schema
-    await prisma.course.delete({
-      where: { id }
+    // ใช้ Transaction เพื่อเคลียร์ข้อมูลลูกที่ผูกกับ Course ก่อนลบตัวคอร์ส
+    await prisma.$transaction(async (tx) => {
+      // 1. ลบข้อมูลการเข้าเรียน (Attendance) ทั้งหมดของวิชานี้
+      await tx.attendance.deleteMany({
+        where: { courseId: id }
+      });
+
+      // 2. ลบเซสชันการเช็คชื่อ (AttendanceSession) ทั้งหมดของวิชานี้
+      await tx.attendanceSession.deleteMany({
+        where: { courseId: id }
+      });
+
+      // 3. ตัดความสัมพันธ์ของนักศึกษาที่ลงทะเบียนในวิชานี้ออก
+      await tx.course.update({
+        where: { id: id },
+        data: {
+          students: {
+            set: []
+          }
+        }
+      });
+
+      // 4. ลบรายวิชาอย่างสมบูรณ์
+      await tx.course.delete({
+        where: { id: id }
+      });
     });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("❌ DELETE Course Error:", error.message);
-    return NextResponse.json({ success: false, error: 'ไม่สามารถลบวิชานี้ได้' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'ไม่สามารถลบวิชานี้ได้: ' + error.message }, { status: 500 });
   }
 }

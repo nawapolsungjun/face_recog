@@ -1,3 +1,4 @@
+// attendance-web/app/api/student/profile/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
@@ -58,25 +59,28 @@ export async function GET(request: Request) {
 }
 
 /**
- * [PUT] - อัปเดตโปรไฟล์นักศึกษา (ชื่อจริง, นามสกุล และรหัสผ่าน)
+ * [PUT] - อัปเดตโปรไฟล์นักศึกษา (ชื่อจริง, นามสกุล และรหัสผ่าน พร้อมตรวจสอบรหัสผ่านเดิม)
  */
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, firstName, lastName, name, password } = body;
+    const { id, firstName, lastName, name, oldPassword, password } = body;
     const searchId = id ? String(id) : "";
 
     if (!searchId) {
       return NextResponse.json({ success: false, error: 'ไม่พบ ID ผู้ใช้ที่ส่งมา' }, { status: 400 });
     }
 
-    // 1. ค้นหานักศึกษา
+    // 1. ค้นหานักศึกษาและดึงข้อมูลเชื่อมโยงไปยังตาราง User เพื่อตรวจสอบรหัสผ่านเดิม
     const student = await prisma.student.findFirst({
       where: {
         OR: [
           { id: isNaN(Number(searchId)) ? -1 : Number(searchId) }, 
           { userId: searchId } 
         ]
+      },
+      include: {
+        user: true // ดึงข้อมูล User มาเช็ครหัสผ่าน
       }
     });
 
@@ -85,6 +89,23 @@ export async function PUT(request: Request) {
         success: false, 
         error: 'ไม่พบข้อมูลนักศึกษาในระบบ' 
       }, { status: 404 });
+    }
+
+    // 🔒 หากมีการกรอกรหัสผ่านใหม่ ต้องตรวจสอบรหัสผ่านเดิมก่อน
+    if (password && password.trim().length > 0) {
+      if (!oldPassword) {
+        return NextResponse.json({ success: false, error: 'กรุณากรอกรหัสผ่านเดิมเพื่อยืนยันการเปลี่ยนรหัสผ่าน' }, { status: 400 });
+      }
+
+      if (!student.user || !student.user.password) {
+        return NextResponse.json({ success: false, error: 'ไม่พบข้อมูลบัญชีผู้ใช้สำหรับตรวจสอบรหัสผ่าน' }, { status: 400 });
+      }
+
+      // เปรียบเทียบรหัสผ่านเดิมกับค่าที่แฮชไว้ในฐานข้อมูล
+      const isPasswordValid = await bcrypt.compare(oldPassword, student.user.password);
+      if (!isPasswordValid) {
+        return NextResponse.json({ success: false, error: 'รหัสผ่านเดิมไม่ถูกต้อง' }, { status: 400 });
+      }
     }
 
     // จัดการชื่อจริงและนามสกุล
@@ -103,24 +124,22 @@ export async function PUT(request: Request) {
       if (fName) studentUpdateData.firstName = fName;
       if (lName) studentUpdateData.lastName = lName;
 
-      let hashedPassword = '';
-      if (password && password.trim().length > 0) {
-        hashedPassword = await bcrypt.hash(password, 10);
-        studentUpdateData.password = hashedPassword;
-      }
-
       // อัปเดตข้อมูลในตาราง Student
       await tx.student.update({
         where: { id: student.id },
         data: studentUpdateData
       });
 
-      // อัปเดตรหัสผ่านในตาราง User (ถ้ามีการเปลี่ยนรหัสผ่าน)
-      if (student.userId && hashedPassword) {
-        await tx.user.update({
-          where: { id: student.userId }, 
-          data: { password: hashedPassword }
-        });
+      // หากผ่านการตรวจสอบรหัสผ่านเดิมแล้ว ให้แฮชและอัปเดตที่ตาราง User
+      if (password && password.trim().length > 0) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        if (student.userId) {
+          await tx.user.update({
+            where: { id: student.userId }, 
+            data: { password: hashedPassword }
+          });
+        }
       }
     });
 

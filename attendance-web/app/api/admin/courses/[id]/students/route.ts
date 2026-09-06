@@ -1,7 +1,10 @@
+// attendance-web/app/api/admin/courses/[id]/students/route.ts
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
-// 1. [GET] ดึงข้อมูลรายวิชา, รายชื่อนักศึกษาในวิชา และรายชื่อนักศึกษาทั้งหมด
+export const dynamic = 'force-dynamic';
+
+// 1. [GET] ดึงข้อมูลรายวิชา, รายชื่อนักศึกษาในวิชาพร้อมประวัติการเช็คชื่อ และรายชื่อนักศึกษาทั้งหมด
 export async function GET(
   req: Request, 
   { params }: { params: Promise<{ id: string }> | { id: string } }
@@ -14,13 +17,22 @@ export async function GET(
       return NextResponse.json({ success: false, error: "ไม่พบ Course ID" }, { status: 400 });
     }
 
-    // ดึงข้อมูล Course พร้อม Teacher และ Students (ไม่ระบุ select เพื่อป้องกัน Error ฟิลด์ไม่ตรงกับ Schema)
+    // ดึงข้อมูล Course พร้อม Teacher, Students และพ่วง Attendance เพื่อให้ข้อมูลประวัติครบถ้วน
     const courseInfo = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
         teacher: true,
         students: {
-          orderBy: { studentCode: 'asc' }
+          orderBy: { studentCode: 'asc' },
+          include: {
+            attendances: {
+              where: { courseId: courseId },
+              orderBy: [
+                { updatedAt: 'desc' },
+                { createdAt: 'desc' }
+              ]
+            }
+          }
         }
       }
     });
@@ -119,7 +131,7 @@ export async function DELETE(
   }
 }
 
-// 4. [PUT] แอดมินแก้ไขรหัสวิชาและชื่อรายวิชา
+// 4. [PUT] แอดมินแก้ไขข้อมูลรายวิชา (อัปเดตให้รองรับ Section, Semester, AcademicYear)
 export async function PUT(
   req: Request, 
   { params }: { params: Promise<{ id: string }> | { id: string } }
@@ -127,17 +139,40 @@ export async function PUT(
   try {
     const resolvedParams = await Promise.resolve(params);
     const courseId = resolvedParams.id;
-    const { courseCode, courseName } = await req.json();
+    const { courseCode, courseName, section, semester, academicYear } = await req.json();
 
-    if (!courseCode?.trim() || !courseName?.trim()) {
+    // เช็คข้อมูลให้ครบ
+    if (!courseCode?.trim() || !courseName?.trim() || !section?.trim() || !semester?.trim() || !academicYear?.trim()) {
       return NextResponse.json({ success: false, error: "กรุณากรอกข้อมูลให้ครบถ้วน" }, { status: 400 });
     }
 
+    // ตรวจสอบว่าแก้ไขแล้วไปซ้ำกับวิชาอื่นที่เปิดอยู่แล้วหรือไม่ (ยกเว้นตัวเอง)
+    const duplicateCheck = await prisma.course.findFirst({
+      where: {
+        courseCode: courseCode.trim(),
+        section: section.trim(),
+        semester: semester.trim(),
+        academicYear: academicYear.trim(),
+        id: { not: courseId } // ยกเว้น ID ปัจจุบัน
+      }
+    });
+
+    if (duplicateCheck) {
+      return NextResponse.json(
+        { success: false, error: 'รายวิชานี้และกลุ่มเรียนนี้ ถูกเปิดไปแล้วในภาคเรียน/ปีการศึกษานี้' }, 
+        { status: 400 }
+      );
+    }
+
+    // บันทึกการแก้ไข
     const updatedCourse = await prisma.course.update({
       where: { id: courseId },
       data: {
         courseCode: courseCode.trim(),
         courseName: courseName.trim(),
+        section: section.trim(),
+        semester: semester.trim(),
+        academicYear: academicYear.trim(),
       },
     });
 

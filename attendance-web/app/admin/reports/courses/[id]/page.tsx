@@ -1,13 +1,14 @@
 // attendance-web/app/admin/reports/courses/[id]/page.tsx
 'use client';
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import CourseAttendanceSheetPrintForm from '@/app/components/reports/CourseAttendanceSheetPrintForm';
 
 export const dynamic = 'force-dynamic';
 
 export default function AdminSingleCourseReportPage() {
+  const router = useRouter();
   const params = useParams();
   const courseId = params.id as string;
 
@@ -16,7 +17,7 @@ export default function AdminSingleCourseReportPage() {
   const [dailyReport, setDailyReport] = useState<any>({
     success: false,
     data: [],
-    summary: { total: 0, present: 0, late: 0, absent: 0, leave: 0 }
+    summary: { total: 0, present: 0, late: 0, absent: 0, leave: 0, pending: 0 }
   });
   const [weeksSummaryData, setWeeksSummaryData] = useState<any[]>([]);
   const [historySessions, setHistorySessions] = useState<any[]>([]);
@@ -34,6 +35,7 @@ export default function AdminSingleCourseReportPage() {
   });
 
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('');
+  const [selectedSessionType, setSelectedSessionType] = useState<string>('');
 
   const [editingStudent, setEditingStudent] = useState<{
     id: number;
@@ -65,7 +67,7 @@ export default function AdminSingleCourseReportPage() {
     isSuccess: true,
   });
 
-  const ALL_STATUSES = ['มาเรียน', 'มาสาย', 'ลา', 'ขาดเรียน'];
+  const ALL_STATUSES = ['มาเรียน', 'มาสาย', 'ลา', 'รอตรวจสอบ', 'ขาดเรียน'];
 
   const getAuthToken = () => localStorage.getItem('admin_token') || localStorage.getItem('token');
 
@@ -79,7 +81,7 @@ export default function AdminSingleCourseReportPage() {
 
   const formatDisplayRemark = (str: string) => {
     if (!str) return '';
-    const match = str.match(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)เมื่อ[^)]*?\)/i);
+    const match = str.match(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/i);
     const baseRemark = cleanRemarkString(str);
     if (match) {
       return baseRemark ? `${baseRemark} ${match[0]}` : match[0];
@@ -128,8 +130,8 @@ export default function AdminSingleCourseReportPage() {
         const rawList = Array.isArray(historyJson.data)
           ? historyJson.data
           : Array.isArray(historyJson)
-          ? historyJson
-          : [];
+            ? historyJson
+            : [];
         const sortedHistory = [...rawList].sort((a: any, b: any) => {
           const tA = new Date(a.createdAt || a.date).getTime();
           const tB = new Date(b.createdAt || b.date).getTime();
@@ -142,16 +144,17 @@ export default function AdminSingleCourseReportPage() {
     }
   }, [courseId]);
 
-  const fetchDailyReport = useCallback(async (date: string, timeSlot?: string) => {
+  const fetchDailyReport = useCallback(async (date: string, timeSlot?: string, sessionType?: string) => {
     setLoading(true);
     const token = getAuthToken();
     try {
-      const querySlot = timeSlot ? `&timeSlot=${timeSlot}` : '';
+      const querySlot = timeSlot ? `&timeSlot=${encodeURIComponent(timeSlot)}` : '';
+      const queryType = sessionType ? `&sessionType=${encodeURIComponent(sessionType)}` : '';
       const [resDaily, resHistory] = await Promise.all([
-        fetch(`/api/report/${courseId}?date=${date}${querySlot}`, {
+        fetch(`/api/report/${courseId}?date=${date}${querySlot}${queryType}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`/api/attendance/history/${courseId}?date=${date}${querySlot}`, {
+        fetch(`/api/attendance/history/${courseId}?date=${date}${querySlot}${queryType}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }).catch(() => null)
       ]);
@@ -161,7 +164,7 @@ export default function AdminSingleCourseReportPage() {
         setDailyReport(dailyJson);
         if (dailyJson.summary?.total) setTotalStudentsCount(dailyJson.summary.total);
       } else {
-        setDailyReport({ success: false, data: [], summary: { total: 0, present: 0, late: 0, absent: 0, leave: 0 } });
+        setDailyReport({ success: false, data: [], summary: { total: 0, present: 0, late: 0, absent: 0, leave: 0, pending: 0 } });
       }
 
       if (resHistory && resHistory.ok) {
@@ -203,18 +206,29 @@ export default function AdminSingleCourseReportPage() {
   useEffect(() => {
     if (courseId) {
       fetchCourseDetailsAndHistory();
+      fetchWeeksSummary();
       if (reportMode === 'daily') {
-        fetchDailyReport(selectedDate, selectedTimeSlot);
-      } else {
-        fetchWeeksSummary();
+        fetchDailyReport(selectedDate, selectedTimeSlot, selectedSessionType);
       }
     }
-  }, [courseId, selectedDate, selectedTimeSlot, reportMode, fetchCourseDetailsAndHistory, fetchDailyReport, fetchWeeksSummary]);
+  }, [courseId, selectedDate, selectedTimeSlot, selectedSessionType, reportMode, fetchCourseDetailsAndHistory, fetchDailyReport, fetchWeeksSummary]);
 
   const handleOpenStatusModal = (item: any, timeString?: string) => {
     const displayName = `${item.firstName || ''} ${item.lastName || ''}`.trim() || item.name || 'ไม่ระบุชื่อ';
     const rawRemark = cleanRemarkString(item.remark || '');
     const currentStatus = item.status || 'มาเรียน';
+
+    const availableStatuses = ALL_STATUSES.filter((s) => s !== currentStatus);
+    const initialNewStatus = availableStatuses[0] || 'มาเรียน';
+
+    let defaultRemark = rawRemark;
+    if (!defaultRemark) {
+      if (initialNewStatus === 'มาสาย') defaultRemark = 'มาสาย';
+      else if (initialNewStatus === 'ลา') defaultRemark = 'ลากิจ';
+      else if (initialNewStatus === 'รอตรวจสอบ') defaultRemark = 'รอตรวจสอบ';
+      else if (initialNewStatus === 'มาเรียน') defaultRemark = 'มาเรียน';
+      else if (initialNewStatus === 'ขาดเรียน') defaultRemark = 'ขาดเรียน';
+    }
 
     setEditingStudent({
       id: item.id,
@@ -223,7 +237,7 @@ export default function AdminSingleCourseReportPage() {
       currentStatus: currentStatus,
       newStatus: currentStatus,
       currentTime: timeString || formatTimeString(item.time || item.updatedAt || item.createdAt) || formatTimeString(new Date()),
-      remark: rawRemark
+      remark: defaultRemark
     });
   };
 
@@ -261,7 +275,7 @@ export default function AdminSingleCourseReportPage() {
 
       if (res.ok) {
         setEditingStudent(null);
-        fetchDailyReport(selectedDate, selectedTimeSlot);
+        fetchDailyReport(selectedDate, selectedTimeSlot, selectedSessionType);
         fetchWeeksSummary();
         fetchCourseDetailsAndHistory();
         setAlertModal({
@@ -318,7 +332,7 @@ export default function AdminSingleCourseReportPage() {
       });
 
       if (res.ok) {
-        fetchDailyReport(selectedDate, selectedTimeSlot);
+        fetchDailyReport(selectedDate, selectedTimeSlot, selectedSessionType);
         fetchWeeksSummary();
         fetchCourseDetailsAndHistory();
         setAlertModal({
@@ -455,6 +469,7 @@ export default function AdminSingleCourseReportPage() {
         present: weekData.present,
         late: weekData.late,
         leave: weekData.leave,
+        pending: weekData.pending || 0,
         absent: weekData.absent,
         totalCount: weekData.totalCount || totalStudentsCount,
         percentage: weekData.percentage,
@@ -472,6 +487,7 @@ export default function AdminSingleCourseReportPage() {
       present: 0,
       late: 0,
       leave: 0,
+      pending: 0,
       absent: 0,
       totalCount: totalStudentsCount || 0,
       percentage: 0,
@@ -484,6 +500,8 @@ export default function AdminSingleCourseReportPage() {
     if (week.rawDate) {
       setSelectedDate(week.rawDate);
       setSelectedTimeSlot(week.timeStr || '');
+      setSelectedSessionType(week.sessionType || 'REGULAR');
+      fetchDailyReport(week.rawDate, week.timeStr, week.sessionType);
     }
     setReportMode('daily');
   };
@@ -506,48 +524,117 @@ export default function AdminSingleCourseReportPage() {
     const baseStudents = courseInfo?.students?.length > 0 ? courseInfo.students : dailyReport.data;
     if (!baseStudents || baseStudents.length === 0) return [];
 
+    const uniqueSlots = new Map<string, any>();
+
+    historySessions.forEach((sess: any) => {
+      const d = new Date(sess.date || sess.createdAt || 0);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${day}`;
+
+      let timeSlot = sess.timeSlot || '';
+      const fullText = `${sess.note || ''} ${sess.timeSlot || ''}`;
+      const timeMatch = fullText.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
+
+      if (timeMatch) {
+        timeSlot = `${timeMatch[1]}-${timeMatch[2]}`.replace(/\s+/g, '');
+      } else {
+        const hr = d.getHours();
+        timeSlot = hr < 12 ? '09:00-12:00' : '13:00-16:00';
+      }
+
+      const isComp = sess.sessionType === 'COMPENSATION' || fullText.includes('สอนชดเชย');
+      const sessionType = isComp ? 'COMPENSATION' : 'REGULAR';
+      const slotKey = `${dateStr}_${timeSlot}_${sessionType}`;
+
+      if (!uniqueSlots.has(slotKey)) {
+        uniqueSlots.set(slotKey, {
+          dateStr,
+          timeSlot,
+          sessionType,
+          sessionIds: sess.id ? [String(sess.id)] : [],
+          rawTimestamp: d.getTime(),
+        });
+      } else {
+        const existing = uniqueSlots.get(slotKey);
+        if (sess.id && !existing.sessionIds.includes(String(sess.id))) {
+          existing.sessionIds.push(String(sess.id));
+        }
+      }
+    });
+
+    const standardWeeks = Array.from(uniqueSlots.values()).sort(
+      (a, b) => a.rawTimestamp - b.rawTimestamp,
+    );
+
     return baseStudents.map((student: any) => {
       const studentName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || student.name || 'ไม่ระบุชื่อ';
       const studentId = String(student.id || '');
       const studentCode = String(student.studentCode || '').trim();
       const recordsMap: { [weekNumber: number]: string } = {};
 
-      if (historySessions.length > 0) {
-        historySessions.forEach((session: any, index: number) => {
-          const weekNum = index + 1;
-          const sessionRecords = session.attendances || session.records || [];
+      standardWeeks.forEach((weekSession: any, wIdx: number) => {
+        const weekNum = wIdx + 1;
 
-          const matched = sessionRecords.find((r: any) => {
-            const rId = String(r.studentId || r.student?.id || r.id || '');
-            const rCode = String(r.studentCode || r.student?.studentCode || '').trim();
-            const rName = `${r.firstName || r.student?.firstName || ''} ${r.lastName || r.student?.lastName || ''}`.trim() || r.name || r.student?.name;
+        const studentRecordsInWeek: any[] = [];
+        historySessions.forEach((session: any) => {
+          const d = new Date(session.date || session.createdAt || 0);
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const sessionDateStr = `${y}-${m}-${day}`;
 
-            return (
-              (studentId && rId && rId === studentId) ||
-              (studentCode && rCode && rCode === studentCode) ||
-              (studentName && rName && rName === studentName)
-            );
-          });
+          const isSessionMatch = session.id && weekSession.sessionIds.includes(String(session.id));
+          const isDateMatch = sessionDateStr === weekSession.dateStr;
 
-          if (matched) {
-            recordsMap[weekNum] = matched.status;
-          } else {
-            recordsMap[weekNum] = 'ขาดเรียน';
+          if (isSessionMatch || isDateMatch) {
+            const records = session.attendances || session.records || [];
+            const r = records.find((item: any) => {
+              const rId = String(item.studentId || item.student?.id || item.id || '');
+              const rCode = String(item.studentCode || item.student?.studentCode || '').trim();
+              const rName = `${item.firstName || item.student?.firstName || ''} ${item.lastName || item.student?.lastName || ''}`.trim() || item.name || item.student?.name;
+
+              return (studentId && rId && rId === studentId) ||
+                (studentCode && rCode && rCode === studentCode) ||
+                (studentName && rName && rName === studentName);
+            });
+
+            if (r) {
+              studentRecordsInWeek.push(r);
+            }
           }
         });
-      } else {
-        if (student.status) {
-          recordsMap[1] = student.status;
+
+        let finalStatus = 'ขาดเรียน';
+        if (studentRecordsInWeek.length > 0) {
+          const manuallyEdited = studentRecordsInWeek.find(
+            (r) => (r.remark || '').includes('แก้ไข') || r.isManual === true
+          );
+
+          if (manuallyEdited) {
+            finalStatus = manuallyEdited.status;
+          } else {
+            studentRecordsInWeek.sort((a, b) => {
+              const tA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+              const tB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+              return tB - tA;
+            });
+            finalStatus = studentRecordsInWeek[0].status || 'ขาดเรียน';
+          }
         }
-      }
+
+        recordsMap[weekNum] = finalStatus;
+      });
 
       const recordedStatuses = Object.values(recordsMap);
       const presentCount = recordedStatuses.filter(v => v === 'มาเรียน').length;
       const lateCount = recordedStatuses.filter(v => v === 'มาสาย').length;
       const leaveCount = recordedStatuses.filter(v => v === 'ลา').length;
+      const pendingCount = recordedStatuses.filter(v => v === 'รอตรวจสอบ').length;
       const absentCount = recordedStatuses.filter(v => v === 'ขาดเรียน').length;
-      const totalSessions = recordedStatuses.length;
-      const percent = totalSessions > 0 ? Math.round(((presentCount + lateCount) / totalSessions) * 100) : 0;
+      const totalRecordedWeeks = standardWeeks.length;
+      const percent = totalRecordedWeeks > 0 ? Math.round(((presentCount + lateCount) / totalRecordedWeeks) * 100) : 0;
 
       return {
         id: student.id,
@@ -557,6 +644,7 @@ export default function AdminSingleCourseReportPage() {
         totalPresent: presentCount,
         totalLate: lateCount,
         totalLeave: leaveCount,
+        totalPending: pendingCount,
         totalAbsent: absentCount,
         percentage: percent
       };
@@ -568,27 +656,12 @@ export default function AdminSingleCourseReportPage() {
 
       {/* 1. ส่วนหน้าจอปกติ (ซ่อนอัตโนมัติเมื่อสั่งพิมพ์) */}
       <div className="print:hidden flex flex-col flex-1">
-        <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
-          <div className="absolute top-6 left-6 flex items-center gap-4">
-            <Link
-              href="/admin/courses"
-              className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-1 text-xs uppercase tracking-wider transition-all"
-            >
-              ← รายวิชาทั้งหมด
-            </Link>
-            <Link
-              href="/admin/reports/courses"
-              className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-1 text-xs uppercase tracking-wider transition-all"
-            >
-              ← รายงานภาพรวมทั้งหมด
-            </Link>
-          </div>
+        <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm">
           <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
             ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
           </h1>
-          <p className="text-emerald-100 font-medium text-xs md:text-sm">
-            สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
-          </p>
+          <div className="text-emerald-100 font-medium text-xs md:text-sm space-y-0.5">
+          </div>
         </header>
 
         <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto">
@@ -610,44 +683,51 @@ export default function AdminSingleCourseReportPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
               </svg>
-              จัดการรายชื่อนักศึกษา
+              จัดการรายวิชา
             </Link>
           </div>
         </nav>
 
-        {/* 🌟 ปรับขนาด Main Container เป็น max-w-6xl เท่ากับหน้า Teacher */}
         <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
-          <div className="flex justify-center mb-6">
-            <div className="inline-flex bg-slate-200/80 p-1 rounded-xl shadow-inner border border-slate-300/60">
-              <button
-                type="button"
-                onClick={() => setReportMode('daily')}
-                className={`px-6 py-2 rounded-lg font-bold text-xs md:text-sm transition-all cursor-pointer ${
-                  reportMode === 'daily'
-                    ? 'bg-white text-emerald-800 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                รายละเอียดรายวัน
-              </button>
-              <button
-                type="button"
-                onClick={() => setReportMode('summary')}
-                className={`px-6 py-2 rounded-lg font-bold text-xs md:text-sm transition-all cursor-pointer ${
-                  reportMode === 'summary'
-                    ? 'bg-white text-emerald-800 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                สถิติรวมทุกสัปดาห์ (15 สัปดาห์)
-              </button>
-            </div>
+          {/* ปุ่มย้อนกลับ ตรงแนวขอบซ้ายของการ์ดพอดี */}
+          <div className="mb-3">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#0f766e] transition-colors cursor-pointer"
+            >
+              ← ย้อนกลับ
+            </button>
           </div>
 
           {/* 1. โหมดรายงานประจำวัน */}
           {reportMode === 'daily' && (
             <div className="animate-in fade-in duration-300 space-y-4">
               <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80">
+                {/* ปุ่มสลับโหมดอยู่ใน Card นี้ */}
+                <div className="flex justify-between items-center pb-4 mb-5 border-b border-slate-100 flex-wrap gap-4">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800">รายงานการเข้าเรียนรายวัน</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">ตรวจสอบและจัดการสถานะการเข้าเรียนรายบุคคล</p>
+                  </div>
+                  <div className="inline-flex bg-slate-100 p-1 rounded-xl shadow-inner border border-slate-200/60">
+                    <button
+                      type="button"
+                      onClick={() => setReportMode('daily')}
+                      className="px-4 py-1.5 rounded-lg font-bold text-xs bg-white text-emerald-800 shadow-sm transition-all cursor-pointer"
+                    >
+                      รายละเอียดรายวัน
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReportMode('summary')}
+                      className="px-4 py-1.5 rounded-lg font-bold text-xs text-slate-500 hover:text-slate-800 transition-all cursor-pointer"
+                    >
+                      สถิติรวมทุกสัปดาห์ (15 สัปดาห์)
+                    </button>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                   <div>
                     <div className="flex items-center justify-between mb-2">
@@ -667,6 +747,7 @@ export default function AdminSingleCourseReportPage() {
                       onChange={(e) => {
                         setSelectedDate(e.target.value);
                         setSelectedTimeSlot('');
+                        setSelectedSessionType('');
                       }}
                       className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
                     />
@@ -679,12 +760,15 @@ export default function AdminSingleCourseReportPage() {
                     <input
                       type="text"
                       readOnly
-                      value={`${courseInfo?.courseCode || 'กำลังโหลด...'}  ${courseInfo?.courseName ? `${courseInfo.courseName}` : ''}`}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs md:text-sm font-bold outline-none"
+                      value={courseInfo ? `${courseInfo.courseCode} ${courseInfo.courseName} (กลุ่ม ${courseInfo.section || '-'} | เทอม ${courseInfo.semester || '-'}/${courseInfo.academicYear || '-'})` : 'กำลังโหลด...'}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs md:text-sm font-bold outline-none text-slate-600"
                     />
                   </div>
 
                   <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-2">
+                      ดูประวัติการบันทึก
+                    </label>
                     <Link
                       href={`/admin/reports/courses/${courseId}/history?date=${selectedDate}${selectedTimeSlot ? `&timeSlot=${selectedTimeSlot}` : ''}`}
                       className="w-full inline-flex items-center justify-center gap-2 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white px-5 py-2.5 rounded-xl font-bold text-xs md:text-sm shadow-xs transition-all cursor-pointer"
@@ -697,13 +781,13 @@ export default function AdminSingleCourseReportPage() {
                   </div>
                 </div>
 
-                {/* การ์ดสรุปตัวเลข 5 ช่อง */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-6 border-t border-slate-100">
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mt-6 pt-6 border-t border-slate-100">
                   {[
                     { label: 'ทั้งหมด', count: dailyReport.summary?.total || 0, color: 'text-slate-600', bg: 'bg-slate-50' },
                     { label: 'มาเรียน', count: dailyReport.summary?.present || 0, color: 'text-emerald-600', bg: 'bg-emerald-50/50' },
                     { label: 'มาสาย', count: dailyReport.summary?.late || 0, color: 'text-amber-600', bg: 'bg-amber-50/50' },
                     { label: 'ลา', count: dailyReport.summary?.leave || 0, color: 'text-blue-600', bg: 'bg-blue-50/50' },
+                    { label: 'รอตรวจสอบ', count: dailyReport.summary?.pending || 0, color: 'text-purple-600', bg: 'bg-purple-50/50' },
                     { label: 'ขาดเรียน', count: dailyReport.summary?.absent || 0, color: 'text-red-600', bg: 'bg-red-50/50' }
                   ].map((stat, i) => (
                     <div key={i} className={`${stat.bg} p-3.5 rounded-xl border border-slate-100 text-center`}>
@@ -714,18 +798,17 @@ export default function AdminSingleCourseReportPage() {
                 </div>
               </div>
 
-              {/* ตารางรายชื่อนักศึกษาประจำวัน */}
+              {/* ตารางรายชื่อประจำวัน */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
                 <div className="p-4 border-b border-slate-100 flex gap-2 overflow-x-auto">
-                  {['ทั้งหมด', 'มาเรียน', 'มาสาย', 'ลา', 'ขาดเรียน'].map((f) => (
+                  {['ทั้งหมด', 'มาเรียน', 'มาสาย', 'ลา', 'รอตรวจสอบ', 'ขาดเรียน'].map((f) => (
                     <button
                       key={f}
                       onClick={() => setFilter(f)}
-                      className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        filter === f
+                      className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${filter === f
                           ? 'bg-emerald-700 text-white shadow-xs'
                           : 'bg-slate-50 text-slate-500 hover:bg-slate-100 border border-slate-200/60'
-                      }`}
+                        }`}
                     >
                       {f}
                     </button>
@@ -765,6 +848,8 @@ export default function AdminSingleCourseReportPage() {
                                 return 'bg-amber-50 text-amber-700 border-amber-200';
                               case 'ลา':
                                 return 'bg-blue-50 text-blue-700 border-blue-200';
+                              case 'รอตรวจสอบ':
+                                return 'bg-purple-50 text-purple-700 border-purple-200';
                               case 'ขาดเรียน':
                                 return 'bg-red-50 text-red-700 border-red-200';
                               default:
@@ -847,19 +932,33 @@ export default function AdminSingleCourseReportPage() {
           )}
 
           {/* 2. โหมดสรุปภาพรวม 15 สัปดาห์ */}
-          {reportMode === 'summary' && (
-            <div className="animate-in fade-in duration-300">
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
-                <div className="p-6 bg-emerald-700 text-white flex justify-between items-center">
-                  <div>
-                    <h2 className="text-lg font-black">ตารางสรุปสถิติภาพรวมทุกสัปดาห์</h2>
-                    <p className="text-emerald-100 text-xs mt-0.5">รวมสถิติการเช็คชื่อทั้ง 15 สัปดาห์ตลอดภาคการศึกษา (รวมคาบสอนชดเชย)</p>
-                  </div>
-                  <span className="text-xs bg-emerald-800 text-white px-3.5 py-1.5 rounded-xl font-bold">
-                    ทั้งหมด 15 สัปดาห์
-                  </span>
+          {reportMode !== 'daily' && (
+            <div className="animate-in fade-in duration-300 space-y-4">
+              {/* การ์ดหัวข้อพร้อมปุ่มสลับโหมด */}
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 flex justify-between items-center flex-wrap gap-4">
+                <div>
+                  <h3 className="text-lg font-black text-slate-800">ตารางสรุปสถิติภาพรวมทุกสัปดาห์</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">รวมสถิติการเช็คชื่อทั้ง 15 สัปดาห์ตลอดภาคการศึกษา (รวมคาบสอนชดเชย)</p>
                 </div>
+                <div className="inline-flex bg-slate-100 p-1 rounded-xl shadow-inner border border-slate-200/60">
+                  <button
+                    type="button"
+                    onClick={() => setReportMode('daily')}
+                    className="px-4 py-1.5 rounded-lg font-bold text-xs text-slate-500 hover:text-slate-800 transition-all cursor-pointer"
+                  >
+                    รายละเอียดรายวัน
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReportMode('summary')}
+                    className="px-4 py-1.5 rounded-lg font-bold text-xs bg-white text-emerald-800 shadow-sm transition-all cursor-pointer"
+                  >
+                    สถิติรวมทุกสัปดาห์ (15 สัปดาห์)
+                  </button>
+                </div>
+              </div>
 
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
@@ -867,7 +966,7 @@ export default function AdminSingleCourseReportPage() {
                         <th className="p-4 text-xs font-bold text-slate-600 w-16 text-center">สัปดาห์ที่</th>
                         <th className="p-4 text-xs font-bold text-slate-600 w-44">วันที่และช่วงเวลา</th>
                         <th className="p-4 text-xs font-bold text-slate-600 text-center w-20">นศ.</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-center w-72">สรุปการเข้าเรียน</th>
+                        <th className="p-4 text-xs font-bold text-slate-600 text-center w-[350px]">สรุปการเข้าเรียน (คน)</th>
                         <th className="p-4 text-xs font-bold text-slate-600 text-center w-28">อัตราเข้าเรียน (%)</th>
                         <th className="p-4 text-xs font-bold text-slate-600 text-left">หมายเหตุ / คาบชดเชย</th>
                       </tr>
@@ -880,126 +979,140 @@ export default function AdminSingleCourseReportPage() {
                           </td>
                         </tr>
                       ) : (
-                        weeksList.map((week) => (
-                          <tr
-                            key={week.weekNumber}
-                            className={`transition-colors ${
-                              week.isChecked ? 'hover:bg-emerald-50/30 bg-white' : 'hover:bg-slate-50/80 bg-slate-50/20'
-                            }`}
-                          >
-                            <td
-                              className="p-4 text-center cursor-pointer"
-                              onClick={() => handleSelectWeek(week)}
-                              title="คลิกเพื่อดูรายชื่อนักศึกษาในรอบนี้"
+                        weeksList.map((week) => {
+                          const presentCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'มาเรียน').length;
+                          const lateCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'มาสาย').length;
+                          const pendingCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'รอตรวจสอบ').length;
+                          const leaveCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ลา').length;
+                          const absentCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ขาดเรียน').length;
+
+                          const sumRecorded = presentCount + lateCount + pendingCount + leaveCount + absentCount;
+                          const isRecorded = sumRecorded > 0;
+
+                          const percent = isRecorded && totalStudentsCount > 0
+                            ? Math.round(((presentCount + lateCount) / totalStudentsCount) * 100)
+                            : 0;
+
+                          return (
+                            <tr
+                              key={week.weekNumber}
+                              className={`transition-colors ${isRecorded ? 'hover:bg-emerald-50/30 bg-white' : 'hover:bg-slate-50/80 bg-slate-50/20'
+                                }`}
                             >
-                              <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-bold text-xs ${
-                                week.isChecked ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-400'
-                              }`}>
-                                {week.weekNumber}
-                              </span>
-                            </td>
-                            <td
-                              className="p-4 text-xs font-bold text-slate-700 cursor-pointer"
-                              onClick={() => handleSelectWeek(week)}
-                              title="คลิกเพื่อดูรายชื่อนักศึกษาในรอบนี้"
-                            >
-                              {week.dateStr !== 'ยังไม่บันทึก' ? (
-                                <div>
-                                  <span className="text-emerald-800 font-bold block">
-                                    {week.dateStr} {week.sessionType === 'COMPENSATION' && <span className="text-amber-600 text-[10px] ml-1">(ชดเชย)</span>}
-                                  </span>
-                                  {week.timeStr && (
-                                    <span className="text-[11px] text-slate-500 font-medium block mt-0.5">
-                                      {getTimeSlotLabel(week.timeStr)}
+                              <td
+                                className="p-4 text-center cursor-pointer"
+                                onClick={() => handleSelectWeek(week)}
+                                title="คลิกเพื่อดูรายชื่อนักศึกษาในรอบนี้"
+                              >
+                                <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-bold text-xs ${isRecorded ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-400'
+                                  }`}>
+                                  {week.weekNumber}
+                                </span>
+                              </td>
+                              <td
+                                className="p-4 text-xs font-bold text-slate-700 cursor-pointer"
+                                onClick={() => handleSelectWeek(week)}
+                                title="คลิกเพื่อดูรายชื่อนักศึกษาในรอบนี้"
+                              >
+                                {week.dateStr !== 'ยังไม่บันทึก' ? (
+                                  <div>
+                                    <span className="text-emerald-800 font-bold block">
+                                      {week.dateStr} {week.sessionType === 'COMPENSATION' && <span className="text-amber-600 text-[10px] ml-1">(ชดเชย)</span>}
                                     </span>
-                                  )}
-                                </div>
-                              ) : (
-                                <span className="text-slate-300 font-medium">ยังไม่บันทึก</span>
-                              )}
-                            </td>
-                            <td
-                              className="p-4 text-center font-bold font-mono text-emerald-700 text-xs cursor-pointer"
-                              onClick={() => handleSelectWeek(week)}
-                            >
-                              {week.isChecked ? week.totalCount : '-'}
-                            </td>
-                            <td
-                              className="p-4 text-center cursor-pointer"
-                              onClick={() => handleSelectWeek(week)}
-                            >
-                              {week.isChecked ? (
-                                <div className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap">
-                                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg text-xs font-bold">มา {week.present}</span>
-                                  <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded-lg text-xs font-bold">สาย {week.late}</span>
-                                  <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded-lg text-xs font-bold">ลา {week.leave}</span>
-                                  <span className="px-2 py-0.5 bg-red-50 text-red-700 border border-red-100 rounded-lg text-xs font-bold">ขาด {week.absent}</span>
-                                </div>
-                              ) : (
-                                <div className="text-center text-slate-300 text-xs font-medium italic whitespace-nowrap">- ยังไม่มีการเช็คชื่อ -</div>
-                              )}
-                            </td>
-                            <td
-                              className="p-4 cursor-pointer"
-                              onClick={() => handleSelectWeek(week)}
-                            >
-                              {week.isChecked ? (
-                                <div className="flex flex-col items-center">
-                                  <span className="text-xs font-mono font-bold text-emerald-700">{week.percentage}%</span>
-                                  <div className="w-16 h-1.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
-                                    <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${week.percentage}%` }}></div>
+                                    {week.timeStr && (
+                                      <span className="text-[11px] text-slate-500 font-medium block mt-0.5">
+                                        {getTimeSlotLabel(week.timeStr)}
+                                      </span>
+                                    )}
                                   </div>
-                                </div>
-                              ) : (
-                                <div className="flex flex-col items-center opacity-30">
-                                  <span className="text-xs font-mono font-bold text-slate-400">0%</span>
-                                  <div className="w-16 h-1.5 bg-slate-100 rounded-full mt-1"></div>
-                                </div>
-                              )}
-                            </td>
-                            <td className="p-4">
-                              <div className="flex items-center justify-between gap-3 w-full">
-                                <div className="flex-1">
-                                  {week.note ? (
-                                    <span className="text-xs font-bold text-slate-700 break-words leading-relaxed">
-                                      {week.note}
-                                    </span>
-                                  ) : (
-                                    <span className="text-xs text-slate-300 italic">
-                                      - ไม่มีหมายเหตุ -
-                                    </span>
-                                  )}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setEditingWeekRemark({
-                                      weekNumber: week.weekNumber,
-                                      date: week.rawDate || selectedDate,
-                                      note: week.note || ''
-                                    });
-                                  }}
-                                  className="p-2 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 active:scale-95 rounded-xl border border-transparent hover:border-emerald-200 transition-all cursor-pointer shrink-0"
-                                  title="แก้ไขหมายเหตุ / บันทึกการสอนชดเชย"
-                                >
-                                  <svg
-                                    className="w-4 h-4"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
+                                ) : (
+                                  <span className="text-slate-300 font-medium">ยังไม่บันทึก</span>
+                                )}
+                              </td>
+                              <td
+                                className="p-4 text-center font-bold font-mono text-emerald-700 text-xs cursor-pointer"
+                                onClick={() => handleSelectWeek(week)}
+                              >
+                                {isRecorded ? totalStudentsCount : '-'}
+                              </td>
+                              <td
+                                className="p-4 text-center cursor-pointer"
+                                onClick={() => handleSelectWeek(week)}
+                              >
+                                {isRecorded ? (
+                                  <div className="inline-flex items-center justify-center gap-1.5 flex-wrap">
+                                    <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg text-[11px] font-bold">มา {presentCount}</span>
+                                    <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded-lg text-[11px] font-bold">สาย {lateCount}</span>
+                                    <span className="px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-100 rounded-lg text-[11px] font-bold">รอตรวจสอบ {pendingCount}</span>
+                                    <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded-lg text-[11px] font-bold">ลา {leaveCount}</span>
+                                    <span className="px-2 py-0.5 bg-red-50 text-red-700 border border-red-100 rounded-lg text-[11px] font-bold">ขาด {absentCount}</span>
+                                  </div>
+                                ) : (
+                                  <div className="text-center text-slate-300 text-xs font-medium italic whitespace-nowrap">- ยังไม่มีการเช็คชื่อ -</div>
+                                )}
+                              </td>
+                              <td
+                                className="p-4 cursor-pointer"
+                                onClick={() => handleSelectWeek(week)}
+                              >
+                                {isRecorded ? (
+                                  <div className="flex flex-col items-center">
+                                    <span className="text-xs font-mono font-bold text-emerald-700">{percent}%</span>
+                                    <div className="w-16 h-1.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
+                                      <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${percent}%` }}></div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-col items-center opacity-30">
+                                    <span className="text-xs font-mono font-bold text-slate-400">0%</span>
+                                    <div className="w-16 h-1.5 bg-slate-100 rounded-full mt-1"></div>
+                                  </div>
+                                )}
+                              </td>
+                              <td className="p-4">
+                                <div className="flex items-center justify-between gap-3 w-full">
+                                  <div className="flex-1">
+                                    {week.note ? (
+                                      <span className="text-xs font-bold text-slate-700 break-words leading-relaxed">
+                                        {week.note}
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-slate-300 italic">
+                                        - ไม่มีหมายเหตุ -
+                                      </span>
+                                    )}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingWeekRemark({
+                                        weekNumber: week.weekNumber,
+                                        date: week.rawDate || selectedDate,
+                                        note: week.note || ''
+                                      });
+                                    }}
+                                    className="p-2 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 active:scale-95 rounded-xl border border-transparent hover:border-emerald-200 transition-all cursor-pointer shrink-0"
+                                    title="แก้ไขหมายเหตุ / บันทึกการสอนชดเชย"
                                   >
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                  </svg>
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
+                                    <svg
+                                      className="w-4 h-4"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    >
+                                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -1050,6 +1163,7 @@ export default function AdminSingleCourseReportPage() {
                       let nextRemark = editingStudent.remark;
                       if (nextStatus === 'มาสาย') nextRemark = 'มาสาย';
                       else if (nextStatus === 'ลา') nextRemark = 'ลากิจ';
+                      else if (nextStatus === 'รอตรวจสอบ') nextRemark = 'รอตรวจสอบ';
                       else if (nextStatus === 'มาเรียน') nextRemark = 'มาเรียน';
                       else if (nextStatus === 'ขาดเรียน') nextRemark = 'ขาดเรียน';
 
@@ -1081,7 +1195,7 @@ export default function AdminSingleCourseReportPage() {
                     required
                     value={editingStudent.remark}
                     onChange={(e) => setEditingStudent({ ...editingStudent, remark: e.target.value })}
-                    placeholder="เช่น ลากิจ, ลาป่วย, มาสาย, เช็คชื่อรอบที่ 2"
+                    placeholder="เช่น ลากิจ, ลาป่วย, มาสาย, รอตรวจสอบ"
                     className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
                   />
                 </div>
@@ -1089,7 +1203,7 @@ export default function AdminSingleCourseReportPage() {
                 <div>
                   <span className="text-[11px] font-bold text-slate-400 block mb-1.5">ตัวเลือกด่วน:</span>
                   <div className="flex flex-wrap gap-1.5">
-                    {['ลากิจ', 'ลาป่วย', 'มาสาย', 'เช็คชื่อรอบที่ 2', 'เช็ครอบเก็บตก', 'สอนชดเชย'].map((tag) => (
+                    {['ลากิจ', 'ลาป่วย', 'มาสาย', 'รอตรวจสอบ', 'เช็คชื่อรอบที่ 2', 'เช็ครอบเก็บตก'].map((tag) => (
                       <button
                         key={tag}
                         type="button"
@@ -1212,9 +1326,8 @@ export default function AdminSingleCourseReportPage() {
               <button
                 type="button"
                 onClick={() => setAlertModal({ show: false, title: '', message: '', isSuccess: true })}
-                className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${
-                  alertModal.isSuccess ? 'bg-[#16a34a] hover:bg-[#15803d]' : 'bg-[#dc2626] hover:bg-[#b91c1c]'
-                }`}
+                className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? 'bg-[#16a34a] hover:bg-[#15803d]' : 'bg-[#dc2626] hover:bg-[#b91c1c]'
+                  }`}
               >
                 ตกลง
               </button>
@@ -1232,8 +1345,8 @@ export default function AdminSingleCourseReportPage() {
           teacherName: teacherName,
           credits: courseInfo?.credits || '3 (3-0-6)',
           section: courseInfo?.section || '1',
-          academicYear: '2569',
-          semester: '1',
+          academicYear: courseInfo?.academicYear || '2569',
+          semester: courseInfo?.semester || '1',
           faculty: 'คณะบริหารธุรกิจ',
           department: 'สาขาวิชานวัตกรรมระบบสารสนเทศ',
         }}

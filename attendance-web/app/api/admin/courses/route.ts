@@ -1,7 +1,18 @@
+// attendance-web/app/api/admin/courses/route.ts
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
+
+// ฟังก์ชันสุ่มรหัสเข้าชั้นเรียน (Join Code) 6 หลัก
+function generateJoinCode(length = 6) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
 
 /**
  * [GET] - ดึงรายวิชาทั้งหมดในระบบ และรายชื่ออาจารย์ทั้งหมดสำหรับ Dropdown
@@ -75,32 +86,63 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { courseCode, courseName, teacherId } = body;
+    const { 
+      courseCode, 
+      courseName, 
+      teacherId, 
+      section = "1", // ถ้าไม่ส่งมาให้ถือว่าเป็นกลุ่ม 1
+      semester, 
+      academicYear 
+    } = body;
 
-    if (!courseCode || !courseName || !teacherId) {
+    // ตรวจสอบข้อมูลที่จำเป็น (เพิ่ม เทอม และ ปีการศึกษา)
+    if (!courseCode || !courseName || !teacherId || !semester || !academicYear) {
       return NextResponse.json(
-        { success: false, error: 'กรุณากรอกข้อมูลให้ครบถ้วน' }, 
+        { success: false, error: 'กรุณากรอกข้อมูลให้ครบถ้วน (รหัสวิชา, ชื่อวิชา, ผู้สอน, ภาคเรียน, ปีการศึกษา)' }, 
         { status: 400 }
       );
     }
 
-    // ตรวจสอบรหัสวิชาซ้ำ
-    const existingCourse = await prisma.course.findUnique({
-      where: { courseCode: courseCode.trim() }
+    // ตรวจสอบว่า วิชานี้ กลุ่มนี้ เปิดไปหรือยังในเทอมและปีการศึกษานี้
+    const existingCourse = await prisma.course.findFirst({
+      where: { 
+        courseCode: courseCode.trim(),
+        section: section.trim(),
+        semester: semester.trim(),
+        academicYear: academicYear.trim()
+      }
     });
 
     if (existingCourse) {
       return NextResponse.json(
-        { success: false, error: 'รหัสวิชานี้มีอยู่ในระบบแล้ว' }, 
+        { success: false, error: 'รายวิชานี้และกลุ่มเรียนนี้ ถูกเปิดไปแล้วในภาคเรียน/ปีการศึกษานี้' }, 
         { status: 400 }
       );
     }
 
+    // สุ่มรหัส Join Code และตรวจสอบไม่ให้ซ้ำในระบบ
+    let newJoinCode = '';
+    let isUnique = false;
+    while (!isUnique) {
+      newJoinCode = generateJoinCode();
+      const checkCode = await prisma.course.findUnique({
+        where: { joinCode: newJoinCode }
+      });
+      if (!checkCode) {
+        isUnique = true;
+      }
+    }
+
+    // สร้างรายวิชา (ห้องเรียน) ใหม่
     const newCourse = await prisma.course.create({
       data: {
         courseCode: courseCode.trim(),
         courseName: courseName.trim(),
         teacherId: parseInt(teacherId, 10),
+        section: section.trim(),
+        semester: semester.trim(),
+        academicYear: academicYear.trim(),
+        joinCode: newJoinCode, // บันทึกรหัสสุ่ม
         status: 'ACTIVE'
       }
     });
@@ -108,7 +150,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ 
       success: true, 
       data: newCourse,
-      message: 'สร้างรายวิชาใหม่สำเร็จเรียบร้อย'
+      message: `สร้างรายวิชาใหม่สำเร็จ (รหัสเข้าร่วม: ${newJoinCode})`
     });
 
   } catch (error: any) {
@@ -121,7 +163,7 @@ export async function POST(req: Request) {
 }
 
 /**
- * [DELETE] - ลบรายวิชาออกจากระบบ
+ * [DELETE] - ลบรายวิชาออกจากระบบอย่างถาวร (พร้อมเคลียร์ข้อมูลความสัมพันธ์เพื่อป้องกัน Foreign Key Violation)
  */
 export async function DELETE(req: Request) {
   try {
@@ -135,8 +177,32 @@ export async function DELETE(req: Request) {
       );
     }
 
-    await prisma.course.delete({
-      where: { id: id }
+    // ใช้ Transaction เพื่อเคลียร์ข้อมูลที่เกี่ยวข้องทั้งหมดก่อนลบคอร์ส
+    await prisma.$transaction(async (tx) => {
+      // 1. ลบข้อมูลการเข้าเรียน (Attendance) ทั้งหมดของวิชานี้
+      await tx.attendance.deleteMany({
+        where: { courseId: id }
+      });
+
+      // 2. ลบเซสชันการเช็คชื่อ (AttendanceSession) ทั้งหมดของวิชานี้
+      await tx.attendanceSession.deleteMany({
+        where: { courseId: id }
+      });
+
+      // 3. ตัดความสัมพันธ์ของนักศึกษาที่ลงทะเบียนในวิชานี้ออก
+      await tx.course.update({
+        where: { id: id },
+        data: {
+          students: {
+            set: []
+          }
+        }
+      });
+
+      // 4. ลบรายวิชา
+      await tx.course.delete({
+        where: { id: id }
+      });
     });
 
     return NextResponse.json({ 
