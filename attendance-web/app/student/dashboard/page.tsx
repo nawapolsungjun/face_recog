@@ -579,7 +579,7 @@ export default function StudentDashboard() {
                 onClick={executeLogout}
                 className="flex-[2] bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
               >
-                ออกจากระบบ
+                ยืนยัน
               </button>
             </div>
           </div>
