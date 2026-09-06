@@ -153,7 +153,7 @@ async def register_face_multi(files: List[UploadFile] = File(...)):
     }
 
 # -------------------------------------------------------------------
-# 3. เช็คชื่อจากภาพถ่ายกลุ่ม (Group Attendance Verification)
+# 3. เช็คชื่อจากภาพถ่ายกลุ่ม (Group Attendance Verification แบบ 1 คน 1 กรอบ)
 # -------------------------------------------------------------------
 @app.post("/api/check-attendance-group")
 async def check_attendance_group(
@@ -181,34 +181,55 @@ async def check_attendance_group(
             left = max(0, int(b["x"]))
             face_locations.append((top, right, bottom, left))
 
-        matches = []
-        tolerance = 0.60  # เกณฑ์มาตรฐานของ face_recognition
+        # ค่าเกณฑ์ความเข้มงวด: ปรับเหลือ 0.50 เพื่อตัดคนหน้าคล้าย (False Positive)
+        tolerance = 0.50  
+        match_candidates = []
 
-        for idx, loc in enumerate(face_locations):
-            enc = face_recognition.face_encodings(rgb_img, known_face_locations=[loc], num_jitters=1)
-            
-            if not enc or len(known_students) == 0:
-                matches.append("Unknown")
-                continue
-
-            current_vec = enc[0]
+        if len(known_students) > 0:
             known_vectors = [s["vector"] for s in known_students]
-            
-            distances = face_recognition.face_distance(known_vectors, current_vec)
-            best_match_idx = int(np.argmin(distances))
-            min_dist = distances[best_match_idx]
 
-            print(f"DEBUG: ใบหน้าที่ {idx + 1} ระยะห่างต่ำสุด: {min_dist:.4f} กับ: {known_students[best_match_idx]['name']}")
+            # 1. ประเมินทุกใบหน้าและเก็บ Candidate ที่ผ่านเกณฑ์
+            for idx, loc in enumerate(face_locations):
+                enc = face_recognition.face_encodings(rgb_img, known_face_locations=[loc], num_jitters=1)
+                
+                if not enc:
+                    continue
 
-            if min_dist <= tolerance:
-                matches.append(known_students[best_match_idx]["name"])
-            else:
-                matches.append("Unknown")
+                current_vec = enc[0]
+                distances = face_recognition.face_distance(known_vectors, current_vec)
+                best_match_idx = int(np.argmin(distances))
+                min_dist = distances[best_match_idx]
+
+                print(f"DEBUG: กรอบใบหน้าที่ {idx + 1} ระยะห่างต่ำสุด: {min_dist:.4f} กับ: {known_students[best_match_idx]['name']}")
+
+                if min_dist <= tolerance:
+                    match_candidates.append({
+                        "distance": float(min_dist),
+                        "box_index": idx,
+                        "student_name": known_students[best_match_idx]["name"]
+                    })
+
+        # 2. จับคู่แบบ 1 คน 1 กรอบ (Best Match Assignment)
+        # เรียงลำดับจาก Distance ต่ำสุด (เหมือนสุด) ไปมากสุด
+        match_candidates.sort(key=lambda x: x["distance"])
+        
+        final_matches = ["Unknown"] * len(face_locations)
+        assigned_students = set()
+
+        for cand in match_candidates:
+            b_idx = cand["box_index"]
+            s_name = cand["student_name"]
+
+            # ถ้านักศึกษาคนนี้ยังไม่ได้รับกรอบไหนเลย และกรอบนี้ยังว่างอยู่
+            if s_name not in assigned_students and final_matches[b_idx] == "Unknown":
+                final_matches[b_idx] = s_name
+                assigned_students.add(s_name)
+                print(f"MATCH: มอบชื่อ {s_name} ให้กรอบที่ {b_idx + 1} (Distance: {cand['distance']:.4f})")
 
         return {
             "success": True,
-            "matches": matches,
-            "total_detected": len(matches)
+            "matches": final_matches,
+            "total_detected": len(final_matches)
         }
 
     except Exception as e:
