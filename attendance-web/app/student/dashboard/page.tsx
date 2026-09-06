@@ -577,7 +577,7 @@ export default function StudentDashboard() {
               <button
                 type="button"
                 onClick={executeLogout}
-                className="flex-[2] bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
               >
                 ยืนยัน
               </button>
