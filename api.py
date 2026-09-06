@@ -31,20 +31,17 @@ def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
 def get_students_vectors_by_course(course_id: str):
-    """
-    ดึงข้อมูลเวกเตอร์ใบหน้าของนักศึกษาในรายวิชาจาก Database
-    (ปรับชื่อ Table/Column ให้ตรงกับ Schema ใน Prisma ได้)
-    """
     conn = get_db_connection()
     if not conn:
+        print("DATABASE_URL not set or cannot connect")
         return []
     
     known_students = []
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Query นักศึกษาที่อยู่ใน Course และมี Face Vectors
+            # ตัด s."name" ออก ใช้เฉพาะ firstName และ lastName
             query = """
-                SELECT s.id, s."studentCode", s."firstName", s."lastName", s."name", s."faceVectors"
+                SELECT s.id, s."studentCode", s."firstName", s."lastName", s."faceVectors"
                 FROM "Student" s
                 JOIN "_CourseToStudent" cs ON cs."B" = s.id
                 WHERE cs."A" = %s AND s."faceVectors" IS NOT NULL
@@ -57,9 +54,10 @@ def get_students_vectors_by_course(course_id: str):
                 if not raw_vectors:
                     continue
                 
-                # รองรับทั้งรูปแบบ String JSON และ List
                 vectors = json.loads(raw_vectors) if isinstance(raw_vectors, str) else raw_vectors
-                display_name = f"{row.get('firstName') or ''} {row.get('lastName') or ''}".strip() or row.get("name") or row.get("studentCode")
+                first_name = (row.get("firstName") or "").strip()
+                last_name = (row.get("lastName") or "").strip()
+                display_name = f"{first_name} {last_name}".strip() or row.get("studentCode")
                 
                 for vec in vectors:
                     known_students.append({
@@ -166,17 +164,14 @@ async def check_attendance_group(
     pil_img = None
     rgb_img = None
     try:
-        # 1. โหลดรูปภาพ
         image_bytes = await file.read()
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         rgb_img = np.array(pil_img)
 
-        # 2. ดึงเวกเตอร์นักศึกษาในวิชา
+        # ดึงเวกเตอร์นักศึกษาในรายวิชา
         known_students = get_students_vectors_by_course(course_id)
-        known_vectors = [s["vector"] for s in known_students]
+        print(f"DEBUG: พบเวกเตอร์นักศึกษาในรายวิชา {course_id} จำนวน: {len(known_students)} ชุด")
 
-        # 3. แปลง Bounding Box จาก Frontend [{x, y, width, height}, ...]
-        # เป็นรูปแบบ face_recognition: (top, right, bottom, left)
         parsed_boxes = json.loads(boxes)
         face_locations = []
         for b in parsed_boxes:
@@ -187,22 +182,25 @@ async def check_attendance_group(
             face_locations.append((top, right, bottom, left))
 
         matches = []
-        tolerance = 0.50  # ค่ายิ่งน้อย ยิ่งเข้มงวด ป้องกันการทายผิดคน
+        tolerance = 0.60  # เกณฑ์มาตรฐานของ face_recognition
 
-        # 4. สกัดเวกเตอร์ทีละกรอบใบหน้า เพื่อจำกัด Memory Spike
-        for loc in face_locations:
+        for idx, loc in enumerate(face_locations):
             enc = face_recognition.face_encodings(rgb_img, known_face_locations=[loc], num_jitters=1)
             
-            if not enc or len(known_vectors) == 0:
+            if not enc or len(known_students) == 0:
                 matches.append("Unknown")
                 continue
 
             current_vec = enc[0]
-            # คำนวณระยะห่าง Euclidean Distance
+            known_vectors = [s["vector"] for s in known_students]
+            
             distances = face_recognition.face_distance(known_vectors, current_vec)
             best_match_idx = int(np.argmin(distances))
+            min_dist = distances[best_match_idx]
 
-            if distances[best_match_idx] <= tolerance:
+            print(f"DEBUG: ใบหน้าที่ {idx + 1} ระยะห่างต่ำสุด: {min_dist:.4f} กับ: {known_students[best_match_idx]['name']}")
+
+            if min_dist <= tolerance:
                 matches.append(known_students[best_match_idx]["name"])
             else:
                 matches.append("Unknown")
