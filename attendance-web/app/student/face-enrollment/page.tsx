@@ -5,8 +5,8 @@ import Webcam from 'react-webcam';
 import Link from 'next/link';
 import * as faceapi from 'face-api.js';
 
-// URL เชื่อมต่อ AI Backend (ดึงจาก Environment Variable หรือใช้ค่าเริ่มต้น)
-const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000';
+// ชี้ตรงไปยัง Backend URL บน Render
+const AI_BASE_URL = 'https://face-recog-usa4.onrender.com';
 
 // ลำดับมุมและท่าทางที่ต้องการให้ตรวจจับ
 const SCAN_STEPS = [
@@ -564,7 +564,7 @@ export default function FaceEnrollmentPage() {
           {/* 1. โหมด Upload รูปภาพ */}
           <div className={`${regMode === 'upload' ? 'block' : 'hidden'} animate-in fade-in space-y-4`}>
             
-            {/* คำแนะนำและตัวอย่าง 5 มุมหน้า (ปรับขนาดข้อความให้ใหญ่และเด่นชัดยิ่งขึ้น) */}
+            {/* คำแนะนำและตัวอย่าง 5 มุมหน้า */}
             <div className="bg-emerald-50/60 border border-emerald-100 rounded-2xl p-5 md:p-6">
               <div className="flex items-center gap-2 mb-2">
                 <span className="w-3 h-3 rounded-full bg-emerald-600"></span>
@@ -576,7 +576,7 @@ export default function FaceEnrollmentPage() {
                 เพื่อให้ระบบ AI ตรวจจับและรู้จำใบหน้าได้อย่างแม่นยำที่สุด ควรถ่ายในที่มีแสงสว่างชัดเจน ไม่สวมแว่นตาดำหรือแมสก์ ตามตัวอย่างมุมด้านล่างนี้:
               </p>
 
-              {/* การ์ดแสดง 5 ท่าทางแนะนำ พร้อมปรับขนาดข้อความให้ใหญ่ขึ้น ชัดเจน */}
+              {/* การ์ดแสดง 5 ท่าทางแนะนำ */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-1">
                 {POSE_GUIDES.map((guide, idx) => (
                   <div key={idx} className="bg-white p-3.5 rounded-2xl border border-emerald-200/80 text-center shadow-xs flex flex-col items-center justify-between">
