@@ -4,3 +4,4 @@ python-multipart
 pydantic
 numpy
 Pillow
+opencv-python-headless
