@@ -237,7 +237,7 @@ export default function FaceEnrollmentPage() {
 
       let allFinalVectors = [...vectorsToSave];
 
-      // โค้ดส่วนที่เพิ่มการ Crop ใบหน้า
+      // ส่วนจัดการครอบตัดเฉพาะใบหน้าก่อนส่งขึ้น Backend
       if (files && files.length > 0) {
         setStatus('กำลังวิเคราะห์และครอบตัดเฉพาะใบหน้าจากรูปภาพ...');
         const faceFormData = new FormData();
