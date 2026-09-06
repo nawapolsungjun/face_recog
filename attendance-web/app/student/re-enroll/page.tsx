@@ -1,4 +1,3 @@
-// attendance-web/app/student/re-enroll/page.tsx
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -6,8 +5,8 @@ import Webcam from 'react-webcam';
 import Link from 'next/link';
 import * as faceapi from 'face-api.js';
 
-// URL เชื่อมต่อ AI Backend (ดึงจาก Environment Variable หรือใช้ค่าเริ่มต้น)
-const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000';
+// URL เชื่อมต่อ AI Backend (ชี้ตรงไปยัง Render)
+const AI_BASE_URL = 'https://face-recog-usa4.onrender.com';
 
 // ลำดับมุมและท่าทางที่ต้องการให้ตรวจจับ
 const SCAN_STEPS = [
@@ -51,6 +50,48 @@ const POSE_GUIDES = [
     imgSrc: '/ex5.png',
   },
 ];
+
+// ฟังก์ชันเสริมสำหรับดึงเฉพาะใบหน้าจากรูปภาพต้นฉบับ
+async function cropFaceFromFile(file: File): Promise<File> {
+  // 1. โหลดไฟล์ภาพ
+  const img = await faceapi.bufferToImage(file);
+  
+  // 2. ตรวจจับใบหน้าด้วย Model ที่โหลดไว้แล้ว
+  const detection = await faceapi.detectSingleFace(img, new faceapi.SsdMobilenetv1Options());
+  
+  if (!detection) {
+    throw new Error(`ระบบไม่พบใบหน้าในรูปภาพ ${file.name} กรุณาเปลี่ยนรูปใหม่`);
+  }
+
+  // 3. คำนวณพิกัดและเผื่อขอบ (Padding)
+  const { x, y, width, height } = detection.box;
+  const padding = 40; 
+  
+  const canvas = document.createElement('canvas');
+  canvas.width = width + (padding * 2);
+  canvas.height = height + (padding * 2);
+  const ctx = canvas.getContext('2d');
+  
+  if (!ctx) throw new Error("เกิดข้อผิดพลาดในการประมวลผลรูปภาพ");
+
+  // วาดรูปใหม่โดยดึงมาแค่กรอบใบหน้า
+  ctx.drawImage(
+    img,
+    Math.max(0, x - padding), 
+    Math.max(0, y - padding), 
+    width + (padding * 2), 
+    height + (padding * 2),
+    0, 0, canvas.width, canvas.height
+  );
+
+  // 4. แปลงกลับเป็นไฟล์ (พร้อมบีบอัดคุณภาพลดขนาดไฟล์)
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) return reject(new Error("แปลงไฟล์ไม่สำเร็จ"));
+      resolve(new File([blob], `cropped_${file.name}`, { type: file.type || 'image/jpeg' }));
+    }, file.type || 'image/jpeg', 0.85); 
+  });
+}
 
 export default function ReEnrollPage() {
   const router = useRouter();
@@ -197,11 +238,23 @@ export default function ReEnrollPage() {
 
       let allFinalVectors = [...vectorsToSave];
 
+      // ครอบตัดใบหน้าและส่ง API
       if (files && files.length > 0) {
-        setStatus('กำลังสกัดข้อมูลจากไฟล์รูปภาพ...');
+        setStatus('กำลังวิเคราะห์และครอบตัดเฉพาะใบหน้าจากรูปภาพ...');
         const faceFormData = new FormData();
-        Array.from(files).forEach(file => faceFormData.append('files', file));
 
+        // วนลูป Crop ทีละรูปก่อนบรรจุลง FormData เพื่อลดขนาด Payload
+        const fileArray = Array.from(files);
+        for (let i = 0; i < fileArray.length; i++) {
+          try {
+            const croppedFile = await cropFaceFromFile(fileArray[i]);
+            faceFormData.append('files', croppedFile);
+          } catch (err: any) {
+            throw new Error(`รูปที่ ${i + 1}: ${err.message}`);
+          }
+        }
+
+        setStatus('กำลังส่งข้อมูลใบหน้าไปประมวลผลบนเซิร์ฟเวอร์ AI...');
         const aiResponse = await fetch(`${AI_BASE_URL}/api/register-face-multi`, {
           method: 'POST',
           body: faceFormData
@@ -525,7 +578,7 @@ export default function ReEnrollPage() {
           {/* 1. โหมด Upload รูปภาพ */}
           <div className={`${regMode === 'upload' ? 'block' : 'hidden'} animate-in fade-in space-y-4`}>
             
-            {/* คำแนะนำและตัวอย่าง 5 มุมหน้า (พร้อมภาพตัวอย่าง ex1.png ถึง ex5.png และฟอนต์ขนาดใหญ่) */}
+            {/* คำแนะนำและตัวอย่าง 5 มุมหน้า */}
             <div className="bg-emerald-50/60 border border-emerald-100 rounded-2xl p-4 md:p-6">
               <div className="flex items-center gap-2 mb-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
@@ -537,7 +590,7 @@ export default function ReEnrollPage() {
                 เพื่อให้ระบบ AI ตรวจจับและรู้จำใบหน้าได้อย่างแม่นยำที่สุด ควรถ่ายในที่มีแสงสว่างชัดเจน ไม่สวมแว่นตาดำหรือแมสก์ ตามตัวอย่างมุมด้านล่างนี้:
               </p>
 
-              {/* การ์ดแสดง 5 ท่าทางแนะนำ พร้อมภาพตัวอย่าง ex1.png ถึง ex5.png */}
+              {/* การ์ดแสดง 5 ท่าทางแนะนำ */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-1">
                 {POSE_GUIDES.map((guide, idx) => (
                   <div key={idx} className="bg-white p-3.5 rounded-2xl border border-emerald-200/80 text-center shadow-xs flex flex-col items-center justify-between">
