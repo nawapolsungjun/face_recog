@@ -316,7 +316,7 @@ export default function AttendancePage() {
     }
   };
 
-  // ฟังก์ชันวาดกรอบ Canvas บนหน้าจอ (Inside Bottom ป้องกันการทับซ้อน)
+  // ฟังก์ชันวาดกรอบ Canvas บนหน้าจอ (ป้ายชื่ออยู่ด้านบน Auto-width)
   const drawBoxes = useCallback((image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
     const displayWidth = image.clientWidth || image.width;
     const displayHeight = image.clientHeight || image.height;
@@ -346,38 +346,46 @@ export default function AttendancePage() {
 
       const themeColor = isMatched ? '#10b981' : '#ef4444';
 
-      // 1. วาดเส้นกรอบใบหน้า
+      // 1. วาดเส้นกรอบสี่เหลี่ยมรอบใบหน้า
       ctx.strokeStyle = themeColor;
       ctx.lineWidth = Math.max(2, Math.round(dw * 0.04));
       ctx.strokeRect(dx, dy, dw, dh);
 
-      // 2. คำนวณขนาดตัวอักษรและป้ายชื่อ
-      const fontSize = Math.max(9, Math.min(13, Math.round(dw * 0.14)));
+      // 2. คำนวณขนาดตัวอักษรและป้ายชื่อ Auto-width
+      const fontSize = Math.max(11, Math.min(13, Math.round(dw * 0.14)));
       ctx.font = `bold ${fontSize}px sans-serif`;
 
       const textMetrics = ctx.measureText(name);
       const textWidth = textMetrics.width;
-      const padX = 4;
-      const badgeH = fontSize + 6;
-      const badgeW = Math.min(textWidth + padX * 2, dw); // ป้ายชื่อไม่กว้างเกินกรอบ
+      const padX = 8;
+      const padY = 4;
+      const badgeH = fontSize + padY * 2;
+      const badgeW = textWidth + padX * 2; // ขยายความกว้างป้ายตามความยาวชื่อจริง
 
-      // 3. วางป้ายชื่อไว้ขอบล่างด้านในกรอบ (Inside Bottom)
-      const badgeX = dx;
-      const badgeY = dy + dh - badgeH;
+      // จัดวางป้ายชื่อให้อยู่กึ่งกลางแนวนอน "ด้านบนเหนือกอบใบหน้า"
+      const badgeX = dx + (dw - badgeW) / 2;
+      let badgeY = dy - badgeH - 6;
 
+      // หากชิดขอบบนสุดของภาพ ให้สลับลงมาไว้ด้านใต้กรอบแทน
+      if (badgeY < 2) {
+        badgeY = dy + dh + 6;
+      }
+
+      // 3. วาดพื้นหลังป้ายชื่อ
       ctx.fillStyle = themeColor;
-      ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+        ctx.fill();
+      } else {
+        ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+      }
 
-      // 4. วาดข้อความสีขาว
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(badgeX, badgeY, badgeW, badgeH);
-      ctx.clip();
-
+      // 4. วาดข้อความชื่อสีขาวให้อยู่กึ่งกลางป้าย
       ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(name, badgeX + padX, badgeY + badgeH / 2);
-      ctx.restore();
+      ctx.fillText(name, badgeX + badgeW / 2, badgeY + badgeH / 2);
     });
   }, []);
 
@@ -453,7 +461,6 @@ export default function AttendancePage() {
       setDetectedStudents(Array.from(uniqueDetected));
       setStatus(`ตรวจเสร็จสิ้น: พบนักศึกษา ${uniqueDetected.size} คน จากทั้งหมด ${courseStudents.length} คนในคลาส`);
 
-      // หน่วงเวลาเล็กน้อยเพื่อให้ DOM พร้อมเรนเดอร์ Canvas
       setTimeout(() => {
         updatedResults.forEach((res, idx) => {
           const img = imageRefs.current[idx];
@@ -612,7 +619,7 @@ export default function AttendancePage() {
     });
   }, [attendanceEvaluationList, statusFilter]);
 
-  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกไปหน้าประวัติ (Inside Bottom ป้องกันทับซ้อน)
+  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกไปหน้าประวัติ (ป้ายชื่ออยู่ด้านบน Auto-width)
   const generateImagesWithBurnedBoxes = async (): Promise<string[]> => {
     if (scanResults.length === 0) return [];
 
@@ -661,39 +668,45 @@ export default function AttendancePage() {
                 const dh = box.height * scaleY;
 
                 const themeColor = isMatched ? '#10b981' : '#ef4444';
-                const borderThickness = Math.max(3, Math.round(dw * 0.04));
+                const borderThickness = Math.max(2.5, Math.round(w / 450));
 
                 // 1. วาดกรอบสี่เหลี่ยม
                 ctx.strokeStyle = themeColor;
                 ctx.lineWidth = borderThickness;
                 ctx.strokeRect(dx, dy, dw, dh);
 
-                // 2. คำนวณขนาดตัวอักษร
-                const fontSize = Math.max(12, Math.round(dw * 0.13));
+                // 2. คำนวณขนาดตัวอักษรและป้ายชื่อ Auto-width
+                const fontSize = Math.max(12, Math.round(w / 75));
                 ctx.font = `bold ${fontSize}px sans-serif`;
 
                 const textWidth = ctx.measureText(name).width;
-                const padX = 6;
-                const badgeH = fontSize + 8;
-                const badgeW = Math.min(textWidth + padX * 2, dw);
+                const padX = 10;
+                const padY = 5;
+                const badgeH = fontSize + padY * 2;
+                const badgeW = textWidth + padX * 2;
 
-                // 3. วางป้ายชื่อไว้ขอบล่างด้านในกรอบ (Inside Bottom)
-                const badgeX = dx;
-                const badgeY = dy + dh - badgeH;
+                // กึ่งกลางแนวนอน "ด้านบนเหนือกรอบ"
+                const badgeX = dx + (dw - badgeW) / 2;
+                let badgeY = dy - badgeH - 6;
+                if (badgeY < 2) {
+                  badgeY = dy + dh + 6;
+                }
 
+                // 3. วาดพื้นหลังป้ายชื่อ
                 ctx.fillStyle = themeColor;
-                ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+                if (ctx.roundRect) {
+                  ctx.beginPath();
+                  ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 5);
+                  ctx.fill();
+                } else {
+                  ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+                }
 
-                // 4. วาดข้อความชื่อสีขาว
-                ctx.save();
-                ctx.beginPath();
-                ctx.rect(badgeX, badgeY, badgeW, badgeH);
-                ctx.clip();
-
+                // 4. วาดข้อความสีขาว
                 ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(name, badgeX + padX, badgeY + badgeH / 2);
-                ctx.restore();
+                ctx.fillText(name, badgeX + badgeW / 2, badgeY + badgeH / 2);
               });
             }
 
