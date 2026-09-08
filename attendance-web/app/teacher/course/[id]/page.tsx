@@ -417,7 +417,7 @@ export default function AttendancePage() {
 
         const detections = await faceapi.detectAllFaces(
           imgElement,
-          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.40, maxResults: 80 })
+          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.55, maxResults: 80 })
         ).withFaceLandmarks();
 
         let currentBoxes: any[] = [];
