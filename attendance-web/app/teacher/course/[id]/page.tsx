@@ -1,11 +1,11 @@
+// attendance-web/app/teacher/course/[id]/page.tsx
 'use client';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as faceapi from 'face-api.js';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-// ชี้ตรงไปยัง Render Backend URL
-const AI_BASE_URL = 'https://face-recog-usa4.onrender.com';
+const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://face-recog-usa4.onrender.com';
 
 interface ScanResult {
   url: string;
@@ -21,8 +21,8 @@ interface StudentInCourse {
   name?: string;
 }
 
-// ฟังก์ชันปรับขนาดรูปถ่ายกลุ่มให้เหมาะสมก่อนประมวลผล เพื่อลดขนาด Memory
-async function resizeGroupImage(file: File, maxDimension: number = 1600): Promise<{ resizedBlob: Blob; imgElement: HTMLImageElement }> {
+// ฟังก์ชันปรับขนาดรูปถ่ายกลุ่มเป็น 1920px (Full HD) เพื่อคงรายละเอียดใบหน้าคนแถวหลัง
+async function resizeGroupImage(file: File, maxDimension: number = 1920): Promise<{ resizedBlob: Blob; imgElement: HTMLImageElement }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -53,7 +53,7 @@ async function resizeGroupImage(file: File, maxDimension: number = 1600): Promis
           const resizedImg = new Image();
           resizedImg.onload = () => resolve({ resizedBlob: blob, imgElement: resizedImg });
           resizedImg.src = URL.createObjectURL(blob);
-        }, 'image/jpeg', 0.90);
+        }, 'image/jpeg', 0.92);
       };
       img.onerror = reject;
       img.src = e.target?.result as string;
@@ -85,7 +85,6 @@ export default function AttendancePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  // หลีกเลี่ยง Hydration Mismatch ด้วยการกำหนดเป็นค่าว่างก่อน แล้วค่อยเซ็ตใน useEffect
   const [selectedDate, setSelectedDate] = useState<string>('');
 
   const [sessionType, setSessionType] = useState<'REGULAR' | 'COMPENSATION'>('REGULAR');
@@ -146,7 +145,6 @@ export default function AttendancePage() {
 
   const getAuthToken = () => localStorage.getItem('teacher_token') || localStorage.getItem('token');
 
-  // เซ็ตวันที่หลังจาก Component Mount ฝั่ง Client เรียบร้อยแล้ว
   useEffect(() => {
     const today = new Date();
     const year = today.getFullYear();
@@ -318,11 +316,14 @@ export default function AttendancePage() {
     }
   };
 
-  const drawBoxes = (image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
-    const displayWidth = image.clientWidth;
-    const displayHeight = image.clientHeight;
+  // ฟังก์ชันวาดกรอบ Canvas บนหน้าจอ (Inside Bottom ป้องกันการทับซ้อน)
+  const drawBoxes = useCallback((image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
+    const displayWidth = image.clientWidth || image.width;
+    const displayHeight = image.clientHeight || image.height;
+    const naturalWidth = image.naturalWidth || displayWidth;
+    const naturalHeight = image.naturalHeight || displayHeight;
 
-    if (displayWidth === 0 || displayHeight === 0) return;
+    if (displayWidth === 0 || displayHeight === 0 || naturalWidth === 0) return;
 
     canvas.width = displayWidth;
     canvas.height = displayHeight;
@@ -331,27 +332,54 @@ export default function AttendancePage() {
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const scaleX = displayWidth / image.naturalWidth;
-    const scaleY = displayHeight / image.naturalHeight;
+    const scaleX = displayWidth / naturalWidth;
+    const scaleY = displayHeight / naturalHeight;
 
     boxes.forEach((box, index) => {
-      const name = matches[index];
-      const isMatched = name && name !== 'Unknown';
+      const name = matches[index] || 'Unknown';
+      const isMatched = name !== 'Unknown';
 
       const dx = box.x * scaleX;
       const dy = box.y * scaleY;
       const dw = box.width * scaleX;
       const dh = box.height * scaleY;
 
-      ctx.strokeStyle = isMatched ? '#10b981' : '#ef4444';
-      ctx.lineWidth = 3;
+      const themeColor = isMatched ? '#10b981' : '#ef4444';
+
+      // 1. วาดเส้นกรอบใบหน้า
+      ctx.strokeStyle = themeColor;
+      ctx.lineWidth = Math.max(2, Math.round(dw * 0.04));
       ctx.strokeRect(dx, dy, dw, dh);
 
-      ctx.font = 'bold 12px Arial';
-      ctx.fillStyle = isMatched ? '#10b981' : '#ef4444';
-      ctx.fillText(name || 'Unknown', dx, dy > 15 ? dy - 5 : dy + 15);
+      // 2. คำนวณขนาดตัวอักษรและป้ายชื่อ
+      const fontSize = Math.max(9, Math.min(13, Math.round(dw * 0.14)));
+      ctx.font = `bold ${fontSize}px sans-serif`;
+
+      const textMetrics = ctx.measureText(name);
+      const textWidth = textMetrics.width;
+      const padX = 4;
+      const badgeH = fontSize + 6;
+      const badgeW = Math.min(textWidth + padX * 2, dw); // ป้ายชื่อไม่กว้างเกินกรอบ
+
+      // 3. วางป้ายชื่อไว้ขอบล่างด้านในกรอบ (Inside Bottom)
+      const badgeX = dx;
+      const badgeY = dy + dh - badgeH;
+
+      ctx.fillStyle = themeColor;
+      ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+
+      // 4. วาดข้อความสีขาว
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(badgeX, badgeY, badgeW, badgeH);
+      ctx.clip();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(name, badgeX + padX, badgeY + badgeH / 2);
+      ctx.restore();
     });
-  };
+  }, []);
 
   const handleScanAttendance = async () => {
     if (timeSlotConflict.hasConflict) {
@@ -376,14 +404,12 @@ export default function AttendancePage() {
         const file = selectedFiles[i];
         setStatus(`กำลังปรับขนาดและวิเคราะห์รูปที่ ${i + 1}/${selectedFiles.length}...`);
 
-        // 1. ปรับขนาดรูปกลุ่มบนฝั่งหน้าเว็บเพื่อประหยัด RAM ให้เซิร์ฟเวอร์ Render
-        const { resizedBlob, imgElement } = await resizeGroupImage(file, 1600);
+        const { resizedBlob, imgElement } = await resizeGroupImage(file, 1920);
         const objectUrl = URL.createObjectURL(resizedBlob);
 
-        // 2. ตรวจจับตำแหน่งใบหน้าบนรูปภาพที่ปรับขนาดแล้ว
         const detections = await faceapi.detectAllFaces(
           imgElement,
-          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.55, maxResults: 35 })
+          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.40, maxResults: 80 })
         ).withFaceLandmarks();
 
         let currentBoxes: any[] = [];
@@ -397,7 +423,6 @@ export default function AttendancePage() {
             height: d.detection.box.height
           }));
 
-          // 3. ส่งไฟล์ที่ปรับขนาดแล้วไปยัง AI Backend
           const resizedFile = new File([resizedBlob], file.name, { type: 'image/jpeg' });
           const formData = new FormData();
           formData.append('file', resizedFile);
@@ -428,13 +453,20 @@ export default function AttendancePage() {
       setDetectedStudents(Array.from(uniqueDetected));
       setStatus(`ตรวจเสร็จสิ้น: พบนักศึกษา ${uniqueDetected.size} คน จากทั้งหมด ${courseStudents.length} คนในคลาส`);
 
+      // หน่วงเวลาเล็กน้อยเพื่อให้ DOM พร้อมเรนเดอร์ Canvas
       setTimeout(() => {
         updatedResults.forEach((res, idx) => {
           const img = imageRefs.current[idx];
           const canvas = canvasRefs.current[idx];
-          if (img && canvas) drawBoxes(img, canvas, res.boxes, res.matches);
+          if (img && canvas) {
+            if (img.complete) {
+              drawBoxes(img, canvas, res.boxes, res.matches);
+            } else {
+              img.onload = () => drawBoxes(img, canvas, res.boxes, res.matches);
+            }
+          }
         });
-      }, 200);
+      }, 250);
 
     } catch (err: any) {
       setStatus(`ข้อผิดพลาด: ${err.message}`);
@@ -455,7 +487,7 @@ export default function AttendancePage() {
         );
       }
     }
-  }, [zoomedImageIdx, scanResults]);
+  }, [zoomedImageIdx, scanResults, drawBoxes]);
 
   useEffect(() => {
     if (zoomedImageIdx !== null) {
@@ -580,6 +612,7 @@ export default function AttendancePage() {
     });
   }, [attendanceEvaluationList, statusFilter]);
 
+  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกไปหน้าประวัติ (Inside Bottom ป้องกันทับซ้อน)
   const generateImagesWithBurnedBoxes = async (): Promise<string[]> => {
     if (scanResults.length === 0) return [];
 
@@ -592,7 +625,7 @@ export default function AttendancePage() {
             const canvas = document.createElement('canvas');
             let w = img.width;
             let h = img.height;
-            const maxDim = 1200;
+            const maxDim = 1600;
 
             if (w > maxDim || h > maxDim) {
               if (w > h) {
@@ -619,35 +652,52 @@ export default function AttendancePage() {
 
             if (Array.isArray(res.boxes) && res.boxes.length > 0) {
               res.boxes.forEach((box, bIdx) => {
-                const name = res.matches[bIdx];
-                const isMatched = name && name !== 'Unknown';
+                const name = res.matches[bIdx] || 'Unknown';
+                const isMatched = name !== 'Unknown';
 
                 const dx = box.x * scaleX;
                 const dy = box.y * scaleY;
                 const dw = box.width * scaleX;
                 const dh = box.height * scaleY;
 
-                ctx.strokeStyle = isMatched ? '#10b981' : '#ef4444';
-                ctx.lineWidth = Math.max(3, Math.round(w / 350));
+                const themeColor = isMatched ? '#10b981' : '#ef4444';
+                const borderThickness = Math.max(3, Math.round(dw * 0.04));
+
+                // 1. วาดกรอบสี่เหลี่ยม
+                ctx.strokeStyle = themeColor;
+                ctx.lineWidth = borderThickness;
                 ctx.strokeRect(dx, dy, dw, dh);
 
-                const labelText = isMatched ? name : 'Unknown';
-                const fontSize = Math.max(14, Math.round(w / 65));
+                // 2. คำนวณขนาดตัวอักษร
+                const fontSize = Math.max(12, Math.round(dw * 0.13));
                 ctx.font = `bold ${fontSize}px sans-serif`;
 
-                const textWidth = ctx.measureText(labelText).width;
-                const pad = 6;
-                const labelY = dy > fontSize + 10 ? dy - 6 : dy + dh + fontSize + 4;
+                const textWidth = ctx.measureText(name).width;
+                const padX = 6;
+                const badgeH = fontSize + 8;
+                const badgeW = Math.min(textWidth + padX * 2, dw);
 
-                ctx.fillStyle = isMatched ? '#10b981' : '#ef4444';
-                ctx.fillRect(dx, labelY - fontSize, textWidth + pad * 2, fontSize + pad);
+                // 3. วางป้ายชื่อไว้ขอบล่างด้านในกรอบ (Inside Bottom)
+                const badgeX = dx;
+                const badgeY = dy + dh - badgeH;
+
+                ctx.fillStyle = themeColor;
+                ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+
+                // 4. วาดข้อความชื่อสีขาว
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(badgeX, badgeY, badgeW, badgeH);
+                ctx.clip();
 
                 ctx.fillStyle = '#ffffff';
-                ctx.fillText(labelText, dx + pad, labelY - 2);
+                ctx.textBaseline = 'middle';
+                ctx.fillText(name, badgeX + padX, badgeY + badgeH / 2);
+                ctx.restore();
               });
             }
 
-            resolve(canvas.toDataURL('image/jpeg', 0.85));
+            resolve(canvas.toDataURL('image/jpeg', 0.90));
           };
           img.src = res.url;
         });
@@ -808,7 +858,6 @@ export default function AttendancePage() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-8 flex flex-col items-center">
-        {/* ปุ่มย้อนกลับ */}
         <div className="w-full mb-3">
           <button
             type="button"
@@ -837,7 +886,6 @@ export default function AttendancePage() {
             </div>
           )}
 
-          {/* แจ้งเตือนการเกินขีดจำกัดจำนวนรอบ */}
           {isRoundLimitReached && (
             <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-4 flex items-start gap-3.5 animate-in fade-in duration-200">
               <div className="w-8 h-8 rounded-xl bg-red-500 text-white flex items-center justify-center shrink-0 font-black text-sm">
@@ -988,7 +1036,7 @@ export default function AttendancePage() {
 
           {/* ส่วนที่ 4: อัปโหลดรูปภาพ */}
           <div className="space-y-2">
-            <label className="block text-xs font-bold text-slate-700">อัปโหลดรูปภาพกลุ่ม:</label>
+            <label className="block text-xs font-bold text-slate-700">อัปโหลดรูปภาพกลุ่มนักศึกษาเพื่อทำการเช็คชื่อ:</label>
             <input
               type="file" multiple accept="image/*"
               onChange={handleFileChange}
@@ -1195,6 +1243,10 @@ export default function AttendancePage() {
                     src={res.url}
                     className="block w-full h-auto"
                     alt="Scan"
+                    onLoad={(e) => {
+                      const canvas = canvasRefs.current[idx];
+                      if (canvas) drawBoxes(e.currentTarget, canvas, res.boxes, res.matches);
+                    }}
                   />
                   <canvas ref={(el) => { canvasRefs.current[idx] = el; }} className="absolute top-0 left-0 pointer-events-none" />
                   <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">

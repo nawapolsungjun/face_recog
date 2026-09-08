@@ -1,6 +1,8 @@
 fastapi
 uvicorn
 python-multipart
+face_recognition
+psycopg2-binary
 pydantic
 numpy
 Pillow

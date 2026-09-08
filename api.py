@@ -1,19 +1,22 @@
+# api.py
 import os
 import gc
 import io
 import json
 import base64
+import math
 from typing import List
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from PIL import Image
 import numpy as np
+import cv2
 import face_recognition
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-app = FastAPI(title="Face Recognition AI Service")
+app = FastAPI(title="Face Recognition AI Service - Optimized")
 
 app.add_middleware(
     CORSMiddleware,
@@ -39,7 +42,6 @@ def get_students_vectors_by_course(course_id: str):
     known_students = []
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # ตัด s."name" ออก ใช้เฉพาะ firstName และ lastName
             query = """
                 SELECT s.id, s."studentCode", s."firstName", s."lastName", s."faceVectors"
                 FROM "Student" s
@@ -72,12 +74,61 @@ def get_students_vectors_by_course(course_id: str):
 
     return known_students
 
+# -------------------------------------------------------------------
+# Helper Functions: Image Enhancement, Blur Detection & Alignment
+# -------------------------------------------------------------------
+
+def apply_clahe(rgb_img: np.ndarray) -> np.ndarray:
+    """ปรับสมดุลแสงและความคมชัดเฉพาะจุดด้วย CLAHE"""
+    lab = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    cl = clahe.apply(l)
+    merged = cv2.merge((cl, a, b))
+    return cv2.cvtColor(merged, cv2.COLOR_LAB2RGB)
+
+def check_blur_and_resolution(face_crop: np.ndarray, min_size: int = 80, blur_thresh: float = 40.0):
+    """ตรวจสอบขนาดใบหน้าขั้นต่ำและความคมชัดของภาพด้วย Laplacian Variance"""
+    h, w = face_crop.shape[:2]
+    if h < min_size or w < min_size:
+        return False, f"ขนาดใบหน้าเล็กเกินไป ({w}x{h} px) แนะนำให้อย่างน้อย {min_size}x{min_size} px"
+
+    gray = cv2.cvtColor(face_crop, cv2.COLOR_RGB2GRAY)
+    variance = cv2.Laplacian(gray, cv2.CV_64F).var()
+    if variance < blur_thresh:
+        return False, f"ภาพใบหน้าเบลอเกินไป (ความคมชัด: {variance:.1f} < {blur_thresh})"
+
+    return True, ""
+
+def align_face(rgb_img: np.ndarray, landmarks: dict) -> np.ndarray:
+    """หมุนภาพให้ระนาบดวงตาสองข้างขนานกับแนวระนาบพอดี"""
+    left_eye = landmarks.get("left_eye")
+    right_eye = landmarks.get("right_eye")
+    if not left_eye or not right_eye:
+        return rgb_img
+
+    left_center = np.mean(left_eye, axis=0)
+    right_center = np.mean(right_eye, axis=0)
+
+    d_y = right_center[1] - left_center[1]
+    d_x = right_center[0] - left_center[0]
+    angle = math.degrees(math.atan2(d_y, d_x))
+
+    # ปรับหมุนเฉพาะเมื่อเอียงเกิน 3 องศา และไม่เกิน 45 องศา
+    if 3.0 < abs(angle) < 45.0:
+        center = tuple(np.mean([left_center, right_center], axis=0))
+        rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
+        h, w = rgb_img.shape[:2]
+        return cv2.warpAffine(rgb_img, rot_mat, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REFLECT)
+    
+    return rgb_img
+
 class ImageBase64Request(BaseModel):
     image: str
 
 @app.get("/")
 def read_root():
-    return {"status": "ok", "service": "Face Recognition API"}
+    return {"status": "ok", "service": "Face Recognition API (Optimized)"}
 
 # -------------------------------------------------------------------
 # 1. สกัดเวกเตอร์ทีละรูปจาก Webcam (Single Shot Base64)
@@ -92,11 +143,28 @@ async def extract_vector(payload: ImageBase64Request):
         pil_img = Image.open(io.BytesIO(image_data)).convert("RGB")
         rgb_img = np.array(pil_img)
 
-        face_locations = face_recognition.face_locations(rgb_img, model="hog")
+        # ปรับเกลี่ยแสงเฉพาะจุด
+        enhanced_img = apply_clahe(rgb_img)
+
+        # ค้นหาตำแหน่งใบหน้า (ขยายภาพ 1 ครั้งเพื่อความแม่นยำ)
+        face_locations = face_recognition.face_locations(enhanced_img, number_of_times_to_upsample=1, model="hog")
         if not face_locations:
             return {"success": False, "message": "ไม่พบใบหน้าในภาพ"}
 
-        face_encodings = face_recognition.face_encodings(rgb_img, face_locations)
+        top, right, bottom, left = face_locations[0]
+        face_crop = enhanced_img[top:bottom, left:right]
+
+        # ตรวจสอบความคมชัดและขนาดภาพ
+        is_ok, reason = check_blur_and_resolution(face_crop, min_size=80, blur_thresh=40.0)
+        if not is_ok:
+            return {"success": False, "message": reason}
+
+        # หา Landmarks 68 จุดและปรับระนาบดวงตา
+        landmarks = face_recognition.face_landmarks(enhanced_img, [face_locations[0]], model="large")
+        aligned_img = align_face(enhanced_img, landmarks[0]) if landmarks else enhanced_img
+
+        # สกัดเวกเตอร์คุณภาพสูงด้วย num_jitters=10
+        face_encodings = face_recognition.face_encodings(aligned_img, [face_locations[0]], num_jitters=10)
         if not face_encodings:
             return {"success": False, "message": "ไม่สามารถสกัดเวกเตอร์ใบหน้าได้"}
 
@@ -127,12 +195,27 @@ async def register_face_multi(files: List[UploadFile] = File(...)):
             pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
             rgb_img = np.array(pil_img)
 
-            face_locations = face_recognition.face_locations(rgb_img, model="hog")
-            if not face_locations:
-                h, w, _ = rgb_img.shape
-                face_locations = [(0, w, h, 0)]
+            # ปรับเกลี่ยแสง
+            enhanced_img = apply_clahe(rgb_img)
 
-            encodings = face_recognition.face_encodings(rgb_img, face_locations)
+            face_locations = face_recognition.face_locations(enhanced_img, number_of_times_to_upsample=1, model="hog")
+            if not face_locations:
+                continue
+
+            top, right, bottom, left = face_locations[0]
+            face_crop = enhanced_img[top:bottom, left:right]
+
+            # ตรวจสอบคุณภาพความคมชัดและขนาด
+            is_ok, _ = check_blur_and_resolution(face_crop, min_size=80, blur_thresh=35.0)
+            if not is_ok:
+                continue
+
+            # Align Face
+            landmarks = face_recognition.face_landmarks(enhanced_img, [face_locations[0]], model="large")
+            aligned_img = align_face(enhanced_img, landmarks[0]) if landmarks else enhanced_img
+
+            # สกัดเวกเตอร์ด้วย num_jitters=10
+            encodings = face_recognition.face_encodings(aligned_img, [face_locations[0]], num_jitters=10)
             if encodings:
                 face_vectors.append(encodings[0].tolist())
 
@@ -144,7 +227,7 @@ async def register_face_multi(files: List[UploadFile] = File(...)):
             gc.collect()
 
     if not face_vectors:
-        return {"success": False, "message": "ไม่สามารถสกัดเวกเตอร์ใบหน้าได้"}
+        return {"success": False, "message": "ไม่สามารถสกัดเวกเตอร์ใบหน้าได้ กรุณาใช้รูปที่ชัดเจนและไม่เบลอ"}
 
     return {
         "success": True,
@@ -168,29 +251,39 @@ async def check_attendance_group(
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         rgb_img = np.array(pil_img)
 
+        # ปรับเกลี่ยแสงของรูปภาพกลุ่มด้วย CLAHE
+        enhanced_img = apply_clahe(rgb_img)
+
         # ดึงเวกเตอร์นักศึกษาในรายวิชา
         known_students = get_students_vectors_by_course(course_id)
         print(f"DEBUG: พบเวกเตอร์นักศึกษาในรายวิชา {course_id} จำนวน: {len(known_students)} ชุด")
 
         parsed_boxes = json.loads(boxes)
         face_locations = []
+        img_h, img_w = enhanced_img.shape[:2]
+
+        # ขยายกรอบ Bounding Box ออกไป 12% (Padding) เพื่อให้ได้โครงหน้าครบถ้วน
         for b in parsed_boxes:
-            top = max(0, int(b["y"]))
-            right = min(rgb_img.shape[1], int(b["x"] + b["width"]))
-            bottom = min(rgb_img.shape[0], int(b["y"] + b["height"]))
-            left = max(0, int(b["x"]))
+            x, y, w, h = int(b["x"]), int(b["y"]), int(b["width"]), int(b["height"])
+            pad_x = int(w * 0.12)
+            pad_y = int(h * 0.12)
+
+            top = max(0, y - pad_y)
+            right = min(img_w, x + w + pad_x)
+            bottom = min(img_h, y + h + pad_y)
+            left = max(0, x - pad_x)
+
             face_locations.append((top, right, bottom, left))
 
-        # ค่าเกณฑ์ความเข้มงวด: ปรับเหลือ 0.50 เพื่อตัดคนหน้าคล้าย (False Positive)
-        tolerance = 0.50  
+        tolerance = 0.50
         match_candidates = []
 
         if len(known_students) > 0:
             known_vectors = [s["vector"] for s in known_students]
 
-            # 1. ประเมินทุกใบหน้าและเก็บ Candidate ที่ผ่านเกณฑ์
+            # สกัดเวกเตอร์ภาพกลุ่มโดยใช้ num_jitters=2
             for idx, loc in enumerate(face_locations):
-                enc = face_recognition.face_encodings(rgb_img, known_face_locations=[loc], num_jitters=1)
+                enc = face_recognition.face_encodings(enhanced_img, known_face_locations=[loc], num_jitters=2)
                 
                 if not enc:
                     continue
@@ -209,8 +302,7 @@ async def check_attendance_group(
                         "student_name": known_students[best_match_idx]["name"]
                     })
 
-        # 2. จับคู่แบบ 1 คน 1 กรอบ (Best Match Assignment)
-        # เรียงลำดับจาก Distance ต่ำสุด (เหมือนสุด) ไปมากสุด
+        # จับคู่แบบ 1 คน 1 กรอบ (Best Match Assignment) เรียงจาก Distance ต่ำสุด
         match_candidates.sort(key=lambda x: x["distance"])
         
         final_matches = ["Unknown"] * len(face_locations)
@@ -220,7 +312,6 @@ async def check_attendance_group(
             b_idx = cand["box_index"]
             s_name = cand["student_name"]
 
-            # ถ้านักศึกษาคนนี้ยังไม่ได้รับกรอบไหนเลย และกรอบนี้ยังว่างอยู่
             if s_name not in assigned_students and final_matches[b_idx] == "Unknown":
                 final_matches[b_idx] = s_name
                 assigned_students.add(s_name)
