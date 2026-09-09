@@ -161,7 +161,7 @@ export default function AttendancePage() {
   };
 
   const fetchInitialData = useCallback(async () => {
-    if (!selectedDate) return;
+    if (!selectedDate || !courseId) return;
     const token = getAuthToken();
 
     try {
@@ -234,10 +234,6 @@ export default function AttendancePage() {
           setStartTime(exStart);
           setEndTime(exEnd);
         }
-      } else {
-        if (slotMode === 'MORNING') { setStartTime('09:00'); setEndTime('12:00'); }
-        else if (slotMode === 'AFTERNOON') { setStartTime('13:00'); setEndTime('16:00'); }
-        else if (slotMode === 'SPECIAL') { setStartTime('17:00'); setEndTime('20:00'); }
       }
 
       setDailyRoundNumber(recordedRoundsCount + 1);
@@ -316,7 +312,7 @@ export default function AttendancePage() {
     }
   };
 
-  // ฟังก์ชันวาดกรอบ Canvas ปรับรูปแบบให้เหมือนกับรูปที่ถูกบันทึกลงหน้าประวัติ
+  // ฟังก์ชันวาดกรอบ Canvas บนหน้าจอ (ปรับสไตล์ให้ตรงกับหน้าประวัติ 100%)
   const drawBoxes = useCallback((image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
     const displayWidth = image.clientWidth || image.width;
     const displayHeight = image.clientHeight || image.height;
@@ -347,7 +343,7 @@ export default function AttendancePage() {
       const themeColor = isMatched ? '#10b981' : '#ef4444';
       const borderThickness = Math.max(2.5, Math.round(displayWidth / 450));
 
-      // 1. วาดเส้นกรอบสี่เหลี่ยมรอบใบหน้า
+      // 1. วาดกรอบสี่เหลี่ยม
       ctx.strokeStyle = themeColor;
       ctx.lineWidth = borderThickness;
       ctx.strokeRect(dx, dy, dw, dh);
@@ -363,11 +359,10 @@ export default function AttendancePage() {
       const badgeH = fontSize + padY * 2;
       const badgeW = textWidth + padX * 2;
 
-      // จัดวางป้ายชื่อให้อยู่กึ่งกลางแนวนอน "ด้านบนเหนือกรอบ"
+      // กึ่งกลางแนวนอน ด้านบนเหนือกอบ
       const badgeX = dx + (dw - badgeW) / 2;
       let badgeY = dy - badgeH - 6;
 
-      // หากชิดขอบบนสุดของภาพ ให้สลับลงมาไว้ด้านใต้กรอบแทน
       if (badgeY < 2) {
         badgeY = dy + dh + 6;
       }
@@ -620,20 +615,20 @@ export default function AttendancePage() {
     });
   }, [attendanceEvaluationList, statusFilter]);
 
-  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกลง Database (ลดขนาดลงเหลือ 1000px เพื่อให้ไม่เกิด Large Image Base64 Omitted)
+  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกลง Database (ดึงจาก imageRefs โดยตรง เสถียรและเร็วที่สุด)
   const generateImagesWithBurnedBoxes = async (): Promise<string[]> => {
     if (scanResults.length === 0) return [];
 
     return Promise.all(
-      scanResults.map((res) => {
+      scanResults.map((res, idx) => {
         return new Promise<string>((resolve) => {
-          const img = new window.Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => {
+          const existingImg = imageRefs.current[idx];
+
+          const processCanvas = (img: HTMLImageElement) => {
             const canvas = document.createElement('canvas');
             let w = img.naturalWidth || img.width;
             let h = img.naturalHeight || img.height;
-            const maxDim = 1000; // ปรับลงจาก 1600 เป็น 1000 เพื่อความเสถียรของ Database
+            const maxDim = 1000;
 
             if (w > maxDim || h > maxDim) {
               if (w > h) {
@@ -649,7 +644,7 @@ export default function AttendancePage() {
             canvas.height = h;
             const ctx = canvas.getContext('2d');
             if (!ctx) {
-              resolve(img.src);
+              resolve('');
               return;
             }
 
@@ -671,12 +666,10 @@ export default function AttendancePage() {
                 const themeColor = isMatched ? '#10b981' : '#ef4444';
                 const borderThickness = Math.max(2.5, Math.round(w / 450));
 
-                // 1. วาดกรอบสี่เหลี่ยม
                 ctx.strokeStyle = themeColor;
                 ctx.lineWidth = borderThickness;
                 ctx.strokeRect(dx, dy, dw, dh);
 
-                // 2. คำนวณขนาดตัวอักษรและป้ายชื่อ Auto-width
                 const fontSize = Math.max(12, Math.round(w / 75));
                 ctx.font = `bold ${fontSize}px sans-serif`;
 
@@ -686,14 +679,12 @@ export default function AttendancePage() {
                 const badgeH = fontSize + padY * 2;
                 const badgeW = textWidth + padX * 2;
 
-                // กึ่งกลางแนวนอน "ด้านบนเหนือกรอบ"
                 const badgeX = dx + (dw - badgeW) / 2;
                 let badgeY = dy - badgeH - 6;
                 if (badgeY < 2) {
                   badgeY = dy + dh + 6;
                 }
 
-                // 3. วาดพื้นหลังป้ายชื่อ
                 ctx.fillStyle = themeColor;
                 if (ctx.roundRect) {
                   ctx.beginPath();
@@ -703,7 +694,6 @@ export default function AttendancePage() {
                   ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
                 }
 
-                // 4. วาดข้อความสีขาว
                 ctx.fillStyle = '#ffffff';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
@@ -711,11 +701,17 @@ export default function AttendancePage() {
               });
             }
 
-            // คุณภาพ 0.70 ป้องกันสตริง Base64 เกินลิมิต
             resolve(canvas.toDataURL('image/jpeg', 0.70));
           };
-          img.onerror = () => resolve('');
-          img.src = res.url;
+
+          if (existingImg && existingImg.complete && existingImg.naturalWidth > 0) {
+            processCanvas(existingImg);
+          } else {
+            const fallbackImg = new Image();
+            fallbackImg.onload = () => processCanvas(fallbackImg);
+            fallbackImg.onerror = () => resolve('');
+            fallbackImg.src = res.url;
+          }
         });
       })
     );
