@@ -1,29 +1,21 @@
 // attendance-web/app/teacher/course/[id]/history/page.tsx
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+// ปรับปรุงฟังก์ชันแยกรูปภาพให้ปลอดภัย ไม่แยกด้วย comma มั่วซั่ว
 function parseSessionImages(rawImageUrl: string | null | undefined): string[] {
   if (!rawImageUrl || typeof rawImageUrl !== 'string') return [];
   const trimmed = rawImageUrl.trim();
   if (!trimmed || trimmed.includes('[Large Image Base64 Omitted')) return [];
 
-  if (trimmed.startsWith('data:image/')) {
-    if (trimmed.includes('|||')) {
-      return trimmed.split('|||').filter(Boolean);
-    }
-    return [trimmed];
-  }
-
+  // หากมีหลายรูป คั่นด้วย |||
   if (trimmed.includes('|||')) {
     return trimmed.split('|||').map((s) => s.trim()).filter(Boolean);
   }
 
-  if (trimmed.includes(',')) {
-    return trimmed.split(',').map((s) => s.trim()).filter(Boolean);
-  }
-
+  // หากเป็นรูปเดียว (ทั้ง Data URL Base64 หรือ /uploads/... หรือ URL ภายนอก)
   return [trimmed];
 }
 
@@ -31,9 +23,9 @@ export default function AttendanceHistoryPage() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
-  const courseId = params.id as string;
-  const filterDateParam = searchParams.get('date');
-  const filterTimeSlotParam = searchParams.get('timeSlot');
+  const courseId = params?.id as string;
+  const filterDateParam = searchParams?.get('date') || '';
+  const filterTimeSlotParam = searchParams?.get('timeSlot') || '';
 
   const [courseInfo, setCourseInfo] = useState<{
     courseName: string;
@@ -48,12 +40,15 @@ export default function AttendanceHistoryPage() {
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
-
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+
+  // ป้องกันการ fetch ซ้ำซ้อนตอน component mount
+  const isFetchingRef = useRef(false);
 
   const getAuthToken = () => localStorage.getItem('teacher_token') || localStorage.getItem('token');
 
   const fetchCourseInfo = useCallback(async () => {
+    if (!courseId) return;
     const token = getAuthToken();
     try {
       const res = await fetch(`/api/courses/${courseId}`, {
@@ -77,7 +72,10 @@ export default function AttendanceHistoryPage() {
   }, [courseId]);
 
   const fetchHistory = useCallback(async () => {
+    if (!courseId || isFetchingRef.current) return;
+    isFetchingRef.current = true;
     setLoading(true);
+
     const token = getAuthToken();
     try {
       const queryParams = new URLSearchParams();
@@ -85,21 +83,16 @@ export default function AttendanceHistoryPage() {
       if (filterTimeSlotParam) queryParams.append('timeSlot', filterTimeSlotParam);
 
       const queryString = queryParams.toString();
-      let url = queryString
+      const url = queryString
         ? `/api/attendance/history/${courseId}?${queryString}`
         : `/api/attendance/history/${courseId}`;
 
-      let res = await fetch(url, {
+      const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (!res.ok) {
-        url = queryString
-          ? `/api/teacher/course/${courseId}/history?${queryString}`
-          : `/api/teacher/course/${courseId}/history`;
-        res = await fetch(url, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+        throw new Error(`HTTP Error ${res.status}`);
       }
 
       const json = await res.json();
@@ -126,6 +119,7 @@ export default function AttendanceHistoryPage() {
       setSessions([]);
     } finally {
       setLoading(false);
+      isFetchingRef.current = false;
     }
   }, [courseId, filterDateParam, filterTimeSlotParam]);
 
@@ -176,7 +170,6 @@ export default function AttendanceHistoryPage() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 space-y-6">
-        {/* ปุ่มย้อนกลับ */}
         <div>
           <button
             type="button"
@@ -187,7 +180,7 @@ export default function AttendanceHistoryPage() {
           </button>
         </div>
 
-        {/* การ์ดข้อมูลวิชา (สไตล์เดียวกับหน้า Admin) */}
+        {/* การ์ดข้อมูลวิชา */}
         <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
