@@ -21,6 +21,29 @@ interface StudentInCourse {
   name?: string;
 }
 
+// ฟังก์ชันแปลงเวลา "HH:mm" ให้เป็นจำนวนนาที (เพื่อคำนวณเชิงตัวเลข)
+function timeToMinutes(timeStr: string): number {
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.trim().split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+// ตรวจสอบการทับซ้อนของเวลา (Time Overlap)
+function isTimeOverlapping(slot1: string, slot2: string): boolean {
+  if (!slot1 || !slot2) return false;
+  const [s1, e1] = slot1.split('-');
+  const [s2, e2] = slot2.split('-');
+  if (!s1 || !e1 || !s2 || !e2) return false;
+
+  const start1 = timeToMinutes(s1);
+  const end1 = timeToMinutes(e1);
+  const start2 = timeToMinutes(s2);
+  const end2 = timeToMinutes(e2);
+
+  // ทับซ้อนกันเมื่อ เวลาเริ่มของช่วงหลัง < เวลาจบของช่วงแรก
+  return Math.max(start1, start2) < Math.min(end1, end2);
+}
+
 // ฟังก์ชันปรับขนาดรูปถ่ายกลุ่มเป็น 1920px (Full HD) เพื่อคงรายละเอียดใบหน้าคนแถวหลัง
 async function resizeGroupImage(file: File, maxDimension: number = 1920): Promise<{ resizedBlob: Blob; imgElement: HTMLImageElement }> {
   return new Promise((resolve, reject) => {
@@ -270,6 +293,7 @@ export default function AttendancePage() {
 
   const isRoundLimitReached = dailyRoundNumber > 3;
 
+  // ตรวจสอบการชนกันของเวลา (Time Overlap Calculation)
   const timeSlotConflict = useMemo(() => {
     const currentSlotStr = `${startTime}-${endTime}`;
     const oppositeType = sessionType === 'REGULAR' ? 'COMPENSATION' : 'REGULAR';
@@ -280,17 +304,29 @@ export default function AttendancePage() {
         ? session.sessionType === oppositeType
         : session.note?.includes(oppositeType === 'COMPENSATION' ? 'สอนชดเชย' : 'คาบปกติ');
 
-      const isSameTime = (session.timeSlot && session.timeSlot.includes(currentSlotStr)) ||
-        (session.note && session.note.includes(currentSlotStr));
+      let existingSlot = session.timeSlot || '';
+      if (!existingSlot && session.note) {
+        const match = session.note.match(/\[(\d{1,2}:\d{2}-\d{1,2}:\d{2})\]/);
+        if (match) existingSlot = match[1];
+      }
 
-      return isOpposite && isSameTime;
+      const isOverlapped = existingSlot ? isTimeOverlapping(currentSlotStr, existingSlot) : false;
+      const isSameString = existingSlot && (existingSlot.includes(currentSlotStr) || currentSlotStr.includes(existingSlot));
+
+      return isOpposite && (isOverlapped || isSameString);
     });
 
     if (conflictSession) {
+      let conflictedSlot = conflictSession.timeSlot || '';
+      if (!conflictedSlot && conflictSession.note) {
+        const match = conflictSession.note.match(/\[(\d{1,2}:\d{2}-\d{1,2}:\d{2})\]/);
+        if (match) conflictedSlot = match[1];
+      }
+
       return {
         hasConflict: true,
         conflictedTypeLabel: oppositeLabel,
-        timeSlot: currentSlotStr,
+        timeSlot: conflictedSlot || currentSlotStr,
       };
     }
 
