@@ -1,8 +1,6 @@
 // attendance-web/app/api/attendance/confirm/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import fs from 'fs';
-import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +15,6 @@ export async function POST(request: Request) {
       imageUrls,
       imageUrl,
       attendanceData,
-      detectedNames, // (ไม่ได้ใช้บันทึกตรงๆ แต่รับมาได้)
       note,
       sessionNote,
       round,
@@ -46,37 +43,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. จัดการแปลงรูปภาพเป็นไฟล์จริงใน public/uploads/
-    let finalImageUrl: string | null = null;
-    const rawImage = imageUrl || (Array.isArray(imageUrls) && imageUrls[0]) || null;
+    // 3. รวบรวม Base64 สตริงของรูปภาพทั้งหมดโดยตรง (ไม่ต้องผ่าน fs)
+    const validImages: string[] = [];
 
-    if (rawImage && typeof rawImage === 'string') {
-      if (rawImage.startsWith('data:image')) {
-        // หากส่งมาเป็น Base64 ให้เขียนไฟล์ลง public/uploads/
-        try {
-          const uploadDir = path.join(process.cwd(), 'public', 'uploads');
-          if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-          }
-
-          const matches = rawImage.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-          if (matches && matches.length === 3) {
-            const buffer = Buffer.from(matches[2], 'base64');
-            const fileName = `session_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.jpg`;
-            const filePath = path.join(uploadDir, fileName);
-
-            fs.writeFileSync(filePath, buffer);
-            finalImageUrl = `/uploads/${fileName}`; // ได้ Path รูปแบบเดียวกับ 3 แถวด้านบน
-          }
-        } catch (fileErr) {
-          console.error('Save image file error:', fileErr);
-          finalImageUrl = null;
+    if (Array.isArray(imageUrls) && imageUrls.length > 0) {
+      imageUrls.forEach((img: any) => {
+        if (typeof img === 'string' && img.trim()) {
+          validImages.push(img.trim());
         }
-      } else if (rawImage.startsWith('/uploads/')) {
-        // หากส่งมาเป็น URL Path อยู่แล้ว
-        finalImageUrl = rawImage;
-      }
+      });
+    } else if (imageUrl && typeof imageUrl === 'string' && imageUrl.trim()) {
+      validImages.push(imageUrl.trim());
     }
+
+    // เชื่อมต่อ Base64 หลายรูปด้วย '|||' เพื่อให้ parseSessionImages ใน history/page.tsx แยกรูปได้
+    const finalImageUrl = validImages.length > 0 ? validImages.join('|||') : null;
 
     // 4. บันทึกวันและเวลา
     const now = new Date();
@@ -103,7 +84,7 @@ export async function POST(request: Request) {
       ? `[${currentSlot}] ${currentType === 'COMPENSATION' ? '[สอนชดเชย]' : '[คาบปกติ]'} (รอบที่ ${currentRoundNumber}) - ${customRemark}`
       : `[${currentSlot}] ${currentType === 'COMPENSATION' ? '[สอนชดเชย]' : '[คาบปกติ]'} (รอบที่ ${currentRoundNumber})`;
 
-    // 5. สร้าง Map สถานะนักศึกษา (รับ "รอตรวจสอบ" มาจาก Frontend)
+    // 5. สร้าง Map สถานะนักศึกษา
     const statusMap = new Map<string, { status: string; remark?: string }>();
     if (Array.isArray(attendanceData)) {
       attendanceData.forEach((item: any) => {
@@ -116,23 +97,23 @@ export async function POST(request: Request) {
       });
     }
 
-    // 6. บันทึกลงฐานข้อมูล
+    // 6. บันทึกลง Supabase Database ผ่าน Prisma
     const result = await prisma.$transaction(
       async (tx) => {
-        // สร้างรอบการเช็คชื่อหลัก (AttendanceSession)
+        // บันทึกรอบการเช็คชื่อหลัก พร้อมเก็บ Base64 ลง imageUrl
         const newSession = await tx.attendanceSession.create({
           data: {
             courseId: courseId,
             roundNumber: currentRoundNumber,
             imageUrl: finalImageUrl,
             note: defaultSessionNote,
-            timeSlot: currentSlot,       // ✅ เพิ่มบันทึกเวลาคาบเรียน
-            sessionType: currentType,    // ✅ เพิ่มบันทึกประเภทคาบเรียน (ปกติ/ชดเชย)
+            timeSlot: currentSlot,
+            sessionType: currentType,
             createdAt: sessionDate,
           },
         });
 
-        // สร้างประวัติของนักศึกษาแต่ละคน (Attendance)
+        // บันทึกประวัตินักศึกษารายคน
         const attendanceRecords = course.students.map((student: any) => {
           const evaluated = statusMap.get(String(student.id));
           const finalStatus = evaluated ? evaluated.status : 'ขาดเรียน';
@@ -170,7 +151,7 @@ export async function POST(request: Request) {
         };
       },
       {
-        timeout: 15000,
+        timeout: 20000,
       }
     );
 

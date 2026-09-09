@@ -316,7 +316,7 @@ export default function AttendancePage() {
     }
   };
 
-  // ฟังก์ชันวาดกรอบ Canvas บนหน้าจอ (ป้ายชื่ออยู่ด้านบน Auto-width)
+  // ฟังก์ชันวาดกรอบ Canvas ปรับรูปแบบให้เหมือนกับรูปที่ถูกบันทึกลงหน้าประวัติ
   const drawBoxes = useCallback((image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
     const displayWidth = image.clientWidth || image.width;
     const displayHeight = image.clientHeight || image.height;
@@ -345,24 +345,25 @@ export default function AttendancePage() {
       const dh = box.height * scaleY;
 
       const themeColor = isMatched ? '#10b981' : '#ef4444';
+      const borderThickness = Math.max(2.5, Math.round(displayWidth / 450));
 
       // 1. วาดเส้นกรอบสี่เหลี่ยมรอบใบหน้า
       ctx.strokeStyle = themeColor;
-      ctx.lineWidth = Math.max(2, Math.round(dw * 0.04));
+      ctx.lineWidth = borderThickness;
       ctx.strokeRect(dx, dy, dw, dh);
 
       // 2. คำนวณขนาดตัวอักษรและป้ายชื่อ Auto-width
-      const fontSize = Math.max(11, Math.min(13, Math.round(dw * 0.14)));
+      const fontSize = Math.max(12, Math.round(displayWidth / 75));
       ctx.font = `bold ${fontSize}px sans-serif`;
 
       const textMetrics = ctx.measureText(name);
       const textWidth = textMetrics.width;
-      const padX = 8;
-      const padY = 4;
+      const padX = 10;
+      const padY = 5;
       const badgeH = fontSize + padY * 2;
-      const badgeW = textWidth + padX * 2; // ขยายความกว้างป้ายตามความยาวชื่อจริง
+      const badgeW = textWidth + padX * 2;
 
-      // จัดวางป้ายชื่อให้อยู่กึ่งกลางแนวนอน "ด้านบนเหนือกอบใบหน้า"
+      // จัดวางป้ายชื่อให้อยู่กึ่งกลางแนวนอน "ด้านบนเหนือกรอบ"
       const badgeX = dx + (dw - badgeW) / 2;
       let badgeY = dy - badgeH - 6;
 
@@ -375,13 +376,13 @@ export default function AttendancePage() {
       ctx.fillStyle = themeColor;
       if (ctx.roundRect) {
         ctx.beginPath();
-        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 5);
         ctx.fill();
       } else {
         ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
       }
 
-      // 4. วาดข้อความชื่อสีขาวให้อยู่กึ่งกลางป้าย
+      // 4. วาดข้อความชื่อสีขาว
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -619,7 +620,7 @@ export default function AttendancePage() {
     });
   }, [attendanceEvaluationList, statusFilter]);
 
-  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกไปหน้าประวัติ (ป้ายชื่ออยู่ด้านบน Auto-width)
+  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกลง Database (ลดขนาดลงเหลือ 1000px เพื่อให้ไม่เกิด Large Image Base64 Omitted)
   const generateImagesWithBurnedBoxes = async (): Promise<string[]> => {
     if (scanResults.length === 0) return [];
 
@@ -630,9 +631,9 @@ export default function AttendancePage() {
           img.crossOrigin = 'anonymous';
           img.onload = () => {
             const canvas = document.createElement('canvas');
-            let w = img.width;
-            let h = img.height;
-            const maxDim = 1600;
+            let w = img.naturalWidth || img.width;
+            let h = img.naturalHeight || img.height;
+            const maxDim = 1000; // ปรับลงจาก 1600 เป็น 1000 เพื่อความเสถียรของ Database
 
             if (w > maxDim || h > maxDim) {
               if (w > h) {
@@ -654,8 +655,8 @@ export default function AttendancePage() {
 
             ctx.drawImage(img, 0, 0, w, h);
 
-            const scaleX = w / img.width;
-            const scaleY = h / img.height;
+            const scaleX = w / (img.naturalWidth || img.width);
+            const scaleY = h / (img.naturalHeight || img.height);
 
             if (Array.isArray(res.boxes) && res.boxes.length > 0) {
               res.boxes.forEach((box, bIdx) => {
@@ -710,8 +711,10 @@ export default function AttendancePage() {
               });
             }
 
-            resolve(canvas.toDataURL('image/jpeg', 0.90));
+            // คุณภาพ 0.70 ป้องกันสตริง Base64 เกินลิมิต
+            resolve(canvas.toDataURL('image/jpeg', 0.70));
           };
+          img.onerror = () => resolve('');
           img.src = res.url;
         });
       })
@@ -785,7 +788,7 @@ export default function AttendancePage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800 relative">
 
-      {/* Toast Alert Message ลอยตรงกลางด้านบน */}
+      {/* Toast Alert Message */}
       {toast.show && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border bg-white animate-in slide-in-from-top-4 fade-in duration-300 min-w-[320px] max-w-md border-slate-100">
           <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
@@ -915,7 +918,7 @@ export default function AttendancePage() {
             </div>
           )}
 
-          {/* ส่วนที่ 1: เลือกประเภทคาบเรียน */}
+          {/* ประเภทคาบเรียน */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
             <div>
               <span className="text-xs font-bold text-slate-800 block">ประเภทคาบเรียน</span>
@@ -1012,7 +1015,7 @@ export default function AttendancePage() {
             </div>
           </div>
 
-          {/* ส่วนที่ 2: วันที่ */}
+          {/* วันที่ */}
           <div className="pb-4 border-b border-slate-100">
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
               เลือกวันที่
@@ -1025,7 +1028,7 @@ export default function AttendancePage() {
             />
           </div>
 
-          {/* ส่วนที่ 3: สถานะรอบการเช็คชื่อ */}
+          {/* สถานะรอบการเช็คชื่อ */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 rounded-xl border bg-slate-50 border-slate-200">
             <div>
               <span className="text-xs font-bold text-slate-700 block">
@@ -1047,7 +1050,7 @@ export default function AttendancePage() {
             </span>
           </div>
 
-          {/* ส่วนที่ 4: อัปโหลดรูปภาพ */}
+          {/* อัปโหลดรูปภาพ */}
           <div className="space-y-2">
             <label className="block text-xs font-bold text-slate-700">อัปโหลดรูปภาพกลุ่มนักศึกษาเพื่อทำการเช็คชื่อ:</label>
             <input
